@@ -97,23 +97,53 @@ JOOBLE_API_KEY = get_secret("JOOBLE_API_KEY")
 RAPIDAPI_KEY = get_secret("RAPIDAPI_KEY")
 
 # -------------------------------------------------------------
-# 3. RÉFÉRENTIEL GÉOGRAPHIQUE SUD & OCCITANIE
+# 3. RÉFÉRENTIEL GÉOGRAPHIQUE CORRIGÉ (MAPPING PROPRE)
 # -------------------------------------------------------------
 ZONES_SUD = {
-    "Cournonsec / Montpellier Ouest (34)": {"lat": 43.5483, "lon": 3.7042, "code_insee": "34087", "dept": "34", "name": "Cournonsec"},
-    "Montpellier Métropole (34)": {"lat": 43.6108, "lon": 3.8767, "code_insee": "34172", "dept": "34", "name": "Montpellier"},
-    "Sète & Bassin de Thau (34)": {"lat": 43.4079, "lon": 3.6928, "code_insee": "34301", "dept": "34", "name": "Sete"},
-    "Béziers Méditerranée (34)": {"lat": 43.3442, "lon": 3.2158, "code_insee": "34032", "dept": "34", "name": "Beziers"},
-    "Nîmes & Gard (30)": {"lat": 43.8367, "lon": 4.3601, "code_insee": "30189", "dept": "30", "name": "Nimes"},
-    "Narbonne / Aude (11)": {"lat": 43.1836, "lon": 3.0042, "code_insee": "11262", "dept": "11", "name": "Narbonne"},
-    "Perpignan / Roussillon (66)": {"lat": 42.6986, "lon": 2.8956, "code_insee": "66136", "dept": "66", "name": "Perpignan"},
-    "Toulouse Métropole (31)": {"lat": 43.6047, "lon": 1.4442, "code_insee": "31555", "dept": "31", "name": "Toulouse"},
-    "Avignon / Provence (84)": {"lat": 43.9493, "lon": 4.8055, "code_insee": "84007", "dept": "84", "name": "Avignon"},
-    "Toute l'Occitanie (Tous départements)": {"lat": 43.6108, "lon": 3.8767, "code_insee": "", "dept": "34,30,11,66,31,12,81,82,46,32,65,09,48", "name": "Occitanie"}
+    "Cournonsec / Montpellier Ouest (34)": {
+        "lat": 43.5483, "lon": 3.7042, "code_insee": "34087", "dept": "34", "region_ft": "76",
+        "search_city": "Cournonsec", "is_region": False
+    },
+    "Montpellier Métropole (34)": {
+        "lat": 43.6108, "lon": 3.8767, "code_insee": "34172", "dept": "34", "region_ft": "76",
+        "search_city": "Montpellier", "is_region": False
+    },
+    "Sète & Bassin de Thau (34)": {
+        "lat": 43.4079, "lon": 3.6928, "code_insee": "34301", "dept": "34", "region_ft": "76",
+        "search_city": "Sète", "is_region": False
+    },
+    "Béziers Méditerranée (34)": {
+        "lat": 43.3442, "lon": 3.2158, "code_insee": "34032", "dept": "34", "region_ft": "76",
+        "search_city": "Béziers", "is_region": False
+    },
+    "Nîmes & Gard (30)": {
+        "lat": 43.8367, "lon": 4.3601, "code_insee": "30189", "dept": "30", "region_ft": "76",
+        "search_city": "Nîmes", "is_region": False
+    },
+    "Narbonne / Aude (11)": {
+        "lat": 43.1836, "lon": 3.0042, "code_insee": "11262", "dept": "11", "region_ft": "76",
+        "search_city": "Narbonne", "is_region": False
+    },
+    "Perpignan / Roussillon (66)": {
+        "lat": 42.6986, "lon": 2.8956, "code_insee": "66136", "dept": "66", "region_ft": "76",
+        "search_city": "Perpignan", "is_region": False
+    },
+    "Toulouse Métropole (31)": {
+        "lat": 43.6047, "lon": 1.4442, "code_insee": "31555", "dept": "31", "region_ft": "76",
+        "search_city": "Toulouse", "is_region": False
+    },
+    "Avignon / Provence (84)": {
+        "lat": 43.9493, "lon": 4.8055, "code_insee": "84007", "dept": "84", "region_ft": "93",
+        "search_city": "Avignon", "is_region": False
+    },
+    "Toute l'Occitanie (Tous départements)": {
+        "lat": 43.6108, "lon": 3.8767, "code_insee": "", "dept": "", "region_ft": "76",
+        "search_city": "Occitanie", "is_region": True
+    }
 }
 
 # -------------------------------------------------------------
-# 4. ÉLARGISSEMENT TRANSPARENT DES TERMES (MAXIMISATION)
+# 4. ÉLARGISSEMENT INTELLIGENT DES REQUÊTES
 # -------------------------------------------------------------
 SYNONYMES = {
     "hse": ["HSE", "QSE", "SSE", "sécurité environnement", "prévention des risques", "animateur sécurité"],
@@ -136,7 +166,7 @@ def preparer_requetes(mot_cle):
     return [mot_cle.strip()]
 
 # -------------------------------------------------------------
-# 5. CONNECTEURS D'APIS MULTI-SOURCES
+# 5. CONNECTEURS DES APIS
 # -------------------------------------------------------------
 @st.cache_data(ttl=900)
 def get_ft_token(client_id, client_secret):
@@ -165,14 +195,17 @@ def fetch_france_travail(requetes, zone_info, distance_km):
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
     
     for q in requetes[:3]:
-        params = {"range": "0-49"}
+        params = {"range": "0-99"}
         if q:
             params["motsCles"] = q
-        if zone_info.get("code_insee"):
+            
+        if zone_info["is_region"]:
+            params["region"] = zone_info["region_ft"]
+        elif zone_info.get("code_insee"):
             params["commune"] = zone_info["code_insee"]
             params["distance"] = min(distance_km, 100)
         elif zone_info.get("dept"):
-            params["departement"] = zone_info["dept"].split(",")[0]
+            params["departement"] = zone_info["dept"]
             
         try:
             resp = requests.get(base_url, headers=headers, params=params, timeout=8)
@@ -194,7 +227,7 @@ def fetch_france_travail(requetes, zone_info, distance_km):
             continue
     return offres
 
-def fetch_adzuna(requetes, zone_name, distance_km):
+def fetch_adzuna(requetes, zone_info, distance_km):
     if not ADZUNA_APP_ID or not ADZUNA_APP_KEY:
         return []
     offres = []
@@ -204,12 +237,14 @@ def fetch_adzuna(requetes, zone_name, distance_km):
     params = {
         "app_id": ADZUNA_APP_ID,
         "app_key": ADZUNA_APP_KEY,
-        "what": q_str if q_str else "recrutement",
-        "where": zone_name.split()[0],
-        "distance": distance_km,
+        "what": q_str if q_str else "emploi",
+        "where": zone_info["search_city"],
         "results_per_page": 50,
         "content-type": "application/json"
     }
+    if not zone_info["is_region"]:
+        params["distance"] = distance_km
+        
     try:
         r = requests.get(base_url, params=params, timeout=8)
         if r.status_code == 200:
@@ -230,7 +265,7 @@ def fetch_adzuna(requetes, zone_name, distance_km):
         pass
     return offres
 
-def fetch_jooble(requetes, zone_name, distance_km):
+def fetch_jooble(requetes, zone_info, distance_km):
     if not JOOBLE_API_KEY:
         return []
     offres = []
@@ -238,11 +273,13 @@ def fetch_jooble(requetes, zone_name, distance_km):
     keywords = " ".join([q for q in requetes[:2] if q])
     
     payload = {
-        "keywords": keywords if keywords else "emploi",
-        "location": zone_name.split()[0],
-        "radius": str(distance_km),
+        "keywords": keywords if keywords else "recrutement",
+        "location": zone_info["search_city"],
         "page": 1
     }
+    if not zone_info["is_region"]:
+        payload["radius"] = str(distance_km)
+        
     try:
         r = requests.post(url, json=payload, timeout=8)
         if r.status_code == 200:
@@ -263,20 +300,23 @@ def fetch_jooble(requetes, zone_name, distance_km):
         pass
     return offres
 
-def fetch_jsearch(requetes, zone_name, distance_km):
+def fetch_jsearch(requetes, zone_info, distance_km):
     if not RAPIDAPI_KEY:
         return []
     offres = []
     url = "https://jsearch.p.rapidapi.com/search"
     term = requetes[0] if (requetes and requetes[0]) else "jobs"
     headers = {"x-rapidapi-key": RAPIDAPI_KEY, "x-rapidapi-host": "jsearch.p.rapidapi.com"}
+    
     params = {
-        "query": f"{term} in {zone_name.split()[0]}, France",
+        "query": f"{term} in {zone_info['search_city']}, France",
         "page": "1",
         "num_pages": "1",
-        "date_posted": "all",
-        "distance": str(distance_km)
+        "date_posted": "all"
     }
+    if not zone_info["is_region"]:
+        params["distance"] = str(distance_km)
+        
     try:
         r = requests.get(url, headers=headers, params=params, timeout=9)
         if r.status_code == 200:
@@ -338,7 +378,12 @@ zone_info = ZONES_SUD[zone_choisie]
 
 col_r, col_c = st.columns([2, 3])
 with col_r:
-    rayon = st.select_slider("📏 Rayon kilométrique :", options=[5, 10, 20, 35, 50, 75, 100, 150], value=35)
+    if zone_info["is_region"]:
+        st.info("🌐 Recherche régionale étendue (tous départements)")
+        rayon = 0
+    else:
+        rayon = st.select_slider("📏 Rayon kilométrique :", options=[5, 10, 20, 35, 50, 75, 100, 150], value=35)
+        
 with col_c:
     contrats_choisis = st.multiselect(
         "📄 Filtrer par contrat :",
@@ -362,16 +407,18 @@ requetes_calculees = preparer_requetes(mot_cle)
 
 if btn_chercher or "resultats" not in st.session_state:
     label_recherche = mot_cle if mot_cle else "Toutes opportunités"
-    with st.spinner(f"Recherche de '{label_recherche}' à {zone_info['name']} ({rayon} km)..."):
+    cible_label = "Toute l'Occitanie" if zone_info["is_region"] else f"{zone_info['search_city']} ({rayon} km)"
+    
+    with st.spinner(f"Recherche de '{label_recherche}' sur {cible_label}..."):
         toutes_offres = []
         if "France Travail" in sources_actives:
             toutes_offres.extend(fetch_france_travail(requetes_calculees, zone_info, rayon))
         if "Adzuna" in sources_actives:
-            toutes_offres.extend(fetch_adzuna(requetes_calculees, zone_info["name"], rayon))
+            toutes_offres.extend(fetch_adzuna(requetes_calculees, zone_info, rayon))
         if "Jooble" in sources_actives:
-            toutes_offres.extend(fetch_jooble(requetes_calculees, zone_info["name"], rayon))
+            toutes_offres.extend(fetch_jooble(requetes_calculees, zone_info, rayon))
         if "Indeed & LinkedIn (JSearch)" in sources_actives:
-            toutes_offres.extend(fetch_jsearch(requetes_calculees, zone_info["name"], rayon))
+            toutes_offres.extend(fetch_jsearch(requetes_calculees, zone_info, rayon))
         
         uniques = {}
         for off in toutes_offres:
@@ -385,7 +432,8 @@ offres_brutes = st.session_state.get("resultats", [])
 offres_affichees = [job for job in offres_brutes if correspond_contrat(job, contrats_choisis)]
 
 titre_metier = f" pour « {mot_cle} »" if mot_cle else ""
-st.markdown(f"### **{len(offres_affichees)} opportunités répertoriées**{titre_metier} ({zone_choisie.split()[0]} + {rayon} km)")
+precision_geo = "Toute l'Occitanie" if zone_info["is_region"] else f"{zone_choisie.split()[0]} + {rayon} km"
+st.markdown(f"### **{len(offres_affichees)} opportunités répertoriées**{titre_metier} ({precision_geo})")
 
 # -------------------------------------------------------------
 # 9. ONGLETS D'AFFICHAGE
@@ -414,19 +462,20 @@ with tab_liste:
             st.markdown("<div style='margin-bottom: 16px;'></div>", unsafe_allow_html=True)
 
 with tab_map:
-    st.subheader(f"Zone couverte : {zone_choisie} ({rayon} km)")
-    m = folium.Map(location=[zone_info["lat"], zone_info["lon"]], zoom_start=9)
-    folium.Circle(
-        location=[zone_info["lat"], zone_info["lon"]],
-        radius=rayon * 1000,
-        color="#2563eb",
-        fill=True,
-        fill_opacity=0.15,
-        popup=f"Rayon couvert : {rayon} km"
-    ).add_to(m)
+    st.subheader(f"Zone couverte : {zone_choisie}")
+    m = folium.Map(location=[zone_info["lat"], zone_info["lon"]], zoom_start=8 if zone_info["is_region"] else 9)
+    if not zone_info["is_region"]:
+        folium.Circle(
+            location=[zone_info["lat"], zone_info["lon"]],
+            radius=rayon * 1000,
+            color="#2563eb",
+            fill=True,
+            fill_opacity=0.15,
+            popup=f"Rayon couvert : {rayon} km"
+        ).add_to(m)
     folium.Marker(
         [zone_info["lat"], zone_info["lon"]],
-        popup=f"Centre : {zone_choisie}",
+        popup=f"{zone_choisie}",
         icon=folium.Icon(color="blue", icon="bullseye", prefix="fa")
     ).add_to(m)
     st_folium(m, width="100%", height=450)
