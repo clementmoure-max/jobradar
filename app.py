@@ -1,4 +1,4 @@
-clean_app_code = '''import os
+import os
 import requests
 import pandas as pd
 import streamlit as st
@@ -6,9 +6,11 @@ import folium
 from streamlit_folium import st_folium
 from dotenv import load_dotenv
 
+# -------------------------------------------------------------
+# 1. INITIALISATION & CONFIGURATION RESPONSIVE (PC & MOBILE)
+# -------------------------------------------------------------
 load_dotenv()
 
-# Configuration Streamlit Responsive (PC & Mobile)
 st.set_page_config(
     page_title="JobRadar Sud & Occitanie",
     page_icon="🎯",
@@ -16,18 +18,19 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# -------------------------------------------------------------
-# STYLE ÉPURÉ & RESPONSIVE
-# -------------------------------------------------------------
+# Design moderne, fluide et pensé aussi bien pour grand écran que smartphone
 st.markdown("""
 <style>
+    /* Marges adaptatives pour écrans tactiles et PC */
     .block-container {
-        padding-top: 1rem !important;
-        padding-bottom: 2rem !important;
+        padding-top: 1.2rem !important;
+        padding-bottom: 2.5rem !important;
         padding-left: 1rem !important;
         padding-right: 1rem !important;
         max-width: 100% !important;
     }
+    
+    /* Carte d'offre d'emploi moderne */
     .job-card {
         background-color: #ffffff;
         border: 1px solid #e2e8f0;
@@ -35,7 +38,12 @@ st.markdown("""
         padding: 16px;
         margin-bottom: 12px;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
     }
+    .job-card:hover {
+        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.08);
+    }
+    
     .job-title {
         font-size: 1.15rem;
         font-weight: 700;
@@ -43,18 +51,21 @@ st.markdown("""
         margin-bottom: 4px;
         line-height: 1.3;
     }
+    
     .job-company {
         font-size: 0.95rem;
         font-weight: 600;
         color: #2563eb;
         margin-bottom: 8px;
     }
+    
     .job-badges {
         display: flex;
         flex-wrap: wrap;
         gap: 6px;
         margin-bottom: 10px;
     }
+    
     .badge {
         font-size: 0.75rem;
         padding: 3px 8px;
@@ -65,23 +76,27 @@ st.markdown("""
     .badge-contract { background-color: #eff6ff; color: #1d4ed8; }
     .badge-salary { background-color: #ecfdf5; color: #047857; }
     .badge-source { background-color: #fef3c7; color: #b45309; font-weight: 600; }
+    
     .job-desc {
         font-size: 0.85rem;
         color: #475569;
-        line-height: 1.4;
-        margin-bottom: 10px;
+        line-height: 1.45;
+        margin-bottom: 12px;
     }
+    
+    /* Boutons optimisés pour le clic et le toucher */
     .stButton > button, .stLinkButton > a {
         border-radius: 8px !important;
         font-weight: 600 !important;
     }
+    
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
 # -------------------------------------------------------------
-# RÉCUPÉRATION DES SECRETS
+# 2. GESTION SÉCURISÉE DES CLÉS D'API (SECRETS & LOCAL .ENV)
 # -------------------------------------------------------------
 def get_secret(key, default=""):
     return st.secrets.get(key, os.getenv(key, default))
@@ -94,7 +109,7 @@ JOOBLE_API_KEY = get_secret("JOOBLE_API_KEY")
 RAPIDAPI_KEY = get_secret("RAPIDAPI_KEY")
 
 # -------------------------------------------------------------
-# RÉFÉRENTIEL GÉOGRAPHIQUE DU SUD
+# 3. RÉFÉRENTIEL GÉOGRAPHIQUE SUD & OCCITANIE
 # -------------------------------------------------------------
 ZONES_SUD = {
     "Cournonsec / Montpellier Ouest (34)": {"lat": 43.5483, "lon": 3.7042, "code_insee": "34087", "dept": "34", "name": "Cournonsec"},
@@ -104,13 +119,13 @@ ZONES_SUD = {
     "Nîmes & Gard (30)": {"lat": 43.8367, "lon": 4.3601, "code_insee": "30189", "dept": "30", "name": "Nimes"},
     "Narbonne / Aude (11)": {"lat": 43.1836, "lon": 3.0042, "code_insee": "11262", "dept": "11", "name": "Narbonne"},
     "Perpignan / Roussillon (66)": {"lat": 42.6986, "lon": 2.8956, "code_insee": "66136", "dept": "66", "name": "Perpignan"},
-    "Toulouse & Haute-Garonne (31)": {"lat": 43.6047, "lon": 1.4442, "code_insee": "31555", "dept": "31", "name": "Toulouse"},
+    "Toulouse Métropole (31)": {"lat": 43.6047, "lon": 1.4442, "code_insee": "31555", "dept": "31", "name": "Toulouse"},
     "Avignon / Provence (84)": {"lat": 43.9493, "lon": 4.8055, "code_insee": "84007", "dept": "84", "name": "Avignon"},
     "Toute l'Occitanie (Tous départements)": {"lat": 43.6108, "lon": 3.8767, "code_insee": "", "dept": "34,30,11,66,31,12,81,82,46,32,65,09,48", "name": "Occitanie"}
 }
 
 # -------------------------------------------------------------
-# APIS DE RECHERCHE DIRECTE (RECHERCHE BRUTE SANS MODIFICATION)
+# 4. CONNECTEURS DES MOTEURS DE RECHERCHE (API SANS BRIDAGE)
 # -------------------------------------------------------------
 @st.cache_data(ttl=900)
 def get_ft_token(client_id, client_secret):
@@ -118,9 +133,12 @@ def get_ft_token(client_id, client_secret):
         return None
     url = "https://entreprise.francetravail.fr/connexion/oauth2/access_key?realm=%2Fpartenaire"
     try:
-        r = requests.post(url, headers={"Content-Type": "application/x-www-form-urlencoded"},
-                          data={"grant_type": "client_credentials", "client_id": client_id, "client_secret": client_secret, "scope": "api_offresdemploiv2 o2dsoffre"},
-                          timeout=8)
+        r = requests.post(
+            url,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            data={"grant_type": "client_credentials", "client_id": client_id, "client_secret": client_secret, "scope": "api_offresdemploiv2 o2dsoffre"},
+            timeout=8
+        )
         if r.status_code == 200:
             return r.json().get("access_token")
     except Exception:
@@ -138,12 +156,10 @@ def fetch_france_travail(keyword, zone_info, distance_km):
     params = {"range": "0-49"}
     if keyword.strip():
         params["motsCles"] = keyword.strip()
-        
     if zone_info.get("code_insee"):
         params["commune"] = zone_info["code_insee"]
         params["distance"] = min(distance_km, 100)
     elif zone_info.get("dept"):
-        # Si multi-départements ou Occitanie
         params["departement"] = zone_info["dept"].split(",")[0]
         
     try:
@@ -266,43 +282,84 @@ def fetch_jsearch(keyword, zone_name, distance_km):
     return offres
 
 # -------------------------------------------------------------
-# INTERFACE PRINCIPALE DIRECTE
+# 5. SCANNER DE CONTRATS (FILTRAGE DE PRÉCISION)
 # -------------------------------------------------------------
-st.title("🎯 JobRadar Sud")
-st.caption("Recherche centralisée multi-plateformes (France Travail, Adzuna, Jooble, Indeed & LinkedIn)")
+def correspond_contrat(job, contrats_selectionnes):
+    if not contrats_selectionnes:
+        return True
+    texte_total = f"{job.get('type_contrat', '')} {job.get('titre', '')} {job.get('description', '')}".lower()
+    
+    for c in contrats_selectionnes:
+        c_low = c.lower()
+        if "cdi" in c_low and "cdi" in texte_total:
+            return True
+        if "cdd" in c_low and "cdd" in texte_total:
+            return True
+        if "intérim" in c_low and any(k in texte_total for k in ["intérim", "interim", "mission temporaire"]):
+            return True
+        if "alternance" in c_low and any(k in texte_total for k in ["alternance", "stage", "apprentissage", "contrat pro"]):
+            return True
+        if "plein" in c_low and any(k in texte_total for k in ["temps plein", "plein", "35h", "39h"]):
+            return True
+        if "partiel" in c_low and "partiel" in texte_total:
+            return True
+        if "indépendant" in c_low and any(k in texte_total for k in ["indépendant", "independant", "freelance", "libéral"]):
+            return True
+    return False
 
-# Formulaire de recherche simple
+# -------------------------------------------------------------
+# 6. INTERFACE UTILISATEUR CENTRALE (TOUS CRITÈRES ACCESSIBLES)
+# -------------------------------------------------------------
+st.title("🎯 JobRadar Sud & Occitanie")
+st.caption("Agrégateur d'opportunités en direct : France Travail, Adzuna, Jooble, Indeed & LinkedIn")
+
+# --- LIGNE 1 : RECHERCHE & GÉOGRAPHIE ---
 col_kw, col_zone = st.columns([3, 2])
 with col_kw:
-    mot_cle = st.text_input("🔍 Mots-clés / Métier :", value="HSE", placeholder="ex: HSE, QSE, Chauffeur, Développeur...")
+    mot_cle = st.text_input("🔍 Métier / Mots-clés :", value="HSE", placeholder="ex: HSE, QSE, Chauffeur, Développeur, Logistique...")
 with col_zone:
     zone_choisie = st.selectbox("📍 Secteur géographique :", options=list(ZONES_SUD.keys()), index=0)
 
 zone_info = ZONES_SUD[zone_choisie]
 
-# Curseur de rayon kilométrique
-col_r, col_btn = st.columns([3, 2])
+# --- LIGNE 2 : RAYON KILOMÉTRIQUE & FILTRE CONTRATS ---
+col_r, col_c = st.columns([2, 3])
 with col_r:
     rayon = st.select_slider("📏 Rayon kilométrique :", options=[5, 10, 20, 35, 50, 75, 100, 150], value=35)
-with col_btn:
-    st.write("") # Alignement vertical
-    st.write("")
-    btn_chercher = st.button("🚀 Lancer la recherche", type="primary", use_container_width=True)
+with col_c:
+    contrats_choisis = st.multiselect(
+        "📄 Filtrer par contrat :",
+        options=["CDI", "CDD", "Intérim", "Alternance / Stage", "Temps plein", "Temps partiel", "Indépendant"],
+        default=[]
+    )
+
+# --- OPTIONS AVANCÉES (SOURCES DÉCOCHABLES) ---
+with st.expander("⚙️ Sélection des plateformes actives"):
+    sources_actives = st.multiselect(
+        "Plateformes interrogées :",
+        options=["France Travail", "Adzuna", "Jooble", "Indeed & LinkedIn (JSearch)"],
+        default=["France Travail", "Adzuna", "Jooble", "Indeed & LinkedIn (JSearch)"]
+    )
+
+btn_chercher = st.button("🚀 Lancer la recherche", type="primary", use_container_width=True)
 
 # -------------------------------------------------------------
-# GESTION DES RÉSULTATS
+# 7. EXÉCUTION & DÉDOUBLONNAGE
 # -------------------------------------------------------------
 if btn_chercher or "resultats" not in st.session_state:
     with st.spinner(f"Recherche de '{mot_cle}' à {zone_info['name']} ({rayon} km)..."):
         toutes_offres = []
         
-        # Interrogation directe avec le terme exact tapé
-        toutes_offres.extend(fetch_france_travail(mot_cle, zone_info, rayon))
-        toutes_offres.extend(fetch_adzuna(mot_cle, zone_info["name"], rayon))
-        toutes_offres.extend(fetch_jooble(mot_cle, zone_info["name"], rayon))
-        toutes_offres.extend(fetch_jsearch(mot_cle, zone_info["name"], rayon))
+        if "France Travail" in sources_actives:
+            toutes_offres.extend(fetch_france_travail(mot_cle, zone_info, rayon))
+        if "Adzuna" in sources_actives:
+            toutes_offres.extend(fetch_adzuna(mot_cle, zone_info["name"], rayon))
+        if "Jooble" in sources_actives:
+            toutes_offres.extend(fetch_jooble(mot_cle, zone_info["name"], rayon))
+        if "Indeed & LinkedIn (JSearch)" in sources_actives:
+            toutes_offres.extend(fetch_jsearch(mot_cle, zone_info["name"], rayon))
         
-        # Dédoublonnage simple
+        # Dédoublonnage précis titre + entreprise
         uniques = {}
         for off in toutes_offres:
             cle = f"{off['titre'].lower().strip()}_{off['entreprise'].lower().strip()}"
@@ -311,15 +368,20 @@ if btn_chercher or "resultats" not in st.session_state:
                 
         st.session_state["resultats"] = list(uniques.values())
 
-offres_affichees = st.session_state.get("resultats", [])
+# Application du filtre contrat sur les résultats
+offres_brutes = st.session_state.get("resultats", [])
+offres_affichees = [job for job in offres_brutes if correspond_contrat(job, contrats_choisis)]
 
-st.markdown(f"### **{len(offres_affichees)} offres trouvées** pour `{mot_cle}` ({zone_choisie.split()[0]} + {rayon} km)")
+st.markdown(f"### **{len(offres_affichees)} opportunités répertoriées** pour `{mot_cle}` ({zone_choisie.split()[0]} + {rayon} km)")
 
-tab_liste, tab_map = st.tabs(["📋 Liste des offres", "🗺️ Carte interactive"])
+# -------------------------------------------------------------
+# 8. LES 3 ONGLETS : OFFRES / CARTE / CPF
+# -------------------------------------------------------------
+tab_liste, tab_map, tab_cpf = st.tabs(["📋 Liste des offres", "🗺️ Carte interactive", "🎓 Formations & CPF"])
 
 with tab_liste:
     if not offres_affichees:
-        st.warning("Aucune offre trouvée avec ce mot-clé exact dans ce périmètre. Essayez d'augmenter le rayon kilométrique ou de sélectionner 'Montpellier Métropole' ou 'Toute l'Occitanie'.")
+        st.warning("Aucune offre ne correspond à ces critères. Essayez de réinitialiser le filtre de contrat ou d'augmenter le rayon kilométrique.")
     else:
         for job in offres_affichees:
             st.markdown(f"""
@@ -335,28 +397,35 @@ with tab_liste:
                 <div class="job-desc">{job['description']}</div>
             </div>
             """, unsafe_allow_html=True)
-            st.link_button("👉 Voir & Postuler", job["url"], use_container_width=True)
+            st.link_button("👉 Voir l'offre & Postuler", job["url"], use_container_width=True)
             st.markdown("<div style='margin-bottom: 16px;'></div>", unsafe_allow_html=True)
 
 with tab_map:
-    st.subheader(f"Zone couverte : {zone_choisie} ({rayon} km)")
+    st.subheader(f"Zone de prospection : {zone_choisie} ({rayon} km)")
     m = folium.Map(location=[zone_info["lat"], zone_info["lon"]], zoom_start=9)
     folium.Circle(
         location=[zone_info["lat"], zone_info["lon"]],
         radius=rayon * 1000,
         color="#2563eb",
         fill=True,
-        fill_opacity=0.15
+        fill_opacity=0.15,
+        popup=f"Rayon couvert : {rayon} km"
     ).add_to(m)
     folium.Marker(
         [zone_info["lat"], zone_info["lon"]],
-        popup=f"{zone_choisie}",
+        popup=f"Centre : {zone_choisie}",
         icon=folium.Icon(color="blue", icon="bullseye", prefix="fa")
     ).add_to(m)
     st_folium(m, width="100%", height=450)
-'''
 
-with open("app.py", "w", encoding="utf-8") as f:
-    f.write(clean_app_code)
-
-print("Code sans filtrage automatique généré.")
+with tab_cpf:
+    st.subheader(f"Formations & Financements CPF ({mot_cle})")
+    st.write(f"Opportunités d'évolution professionnelle et montées en compétences identifiées en Occitanie pour **{mot_cle}** :")
+    
+    nom_metier = mot_cle.upper() if mot_cle else "METIER"
+    cpf_exemples = [
+        {"Formation": f"Titre Professionnel & Certification {nom_metier}", "Organisme": "AFPA / GRETA Occitanie", "Financement": "100% Eligible CPF / France Travail", "Lieu": "Montpellier / Sète / Visio"},
+        {"Formation": "Management, Réglementation & Normes Qualité", "Organisme": "CNAM Occitanie / Apave", "Financement": "Plan Entreprise / OPCO / CPF", "Lieu": "Béziers / Nîmes / Distanciel"},
+        {"Formation": "Validation des Acquis de l'Expérience (VAE)", "Organisme": "Région Occitanie", "Financement": "Prise en charge intégrale Région", "Lieu": "Accompagnement personnalisé"}
+    ]
+    st.dataframe(pd.DataFrame(cpf_exemples), use_container_width=True)
