@@ -142,11 +142,11 @@ def preparer_requetes(mot_cle):
     return [mot_cle.strip()]
 
 # -------------------------------------------------------------
-# 5. CONNECTEUR FRANCE TRAVAIL (HAUT DÉBIT)
+# 5. CONNECTEUR FRANCE TRAVAIL
 # -------------------------------------------------------------
 def get_ft_token(client_id, client_secret):
     if not client_id or not client_secret:
-        return None, "Identifiants FT manquants dans les secrets."
+        return None, "Identifiants FT manquants"
     
     if "ft_token" in st.session_state and "ft_token_exp" in st.session_state:
         if time.time() < st.session_state["ft_token_exp"]:
@@ -170,7 +170,7 @@ def get_ft_token(client_id, client_secret):
             st.session_state["ft_token"] = token
             st.session_state["ft_token_exp"] = time.time() + 800
             return token, "OK"
-        return None, f"Erreur Auth {r.status_code} : {r.text}"
+        return None, f"Erreur Auth {r.status_code}"
     except Exception as e:
         return None, str(e)
 
@@ -188,7 +188,6 @@ def fetch_france_travail(requetes, zone_info, distance_km):
     }
     
     for q in requetes[:3]:
-        # On élargit la plage à 0-149 pour récupérer beaucoup plus d'offres
         params = {"range": "0-149", "sort": "2"}
         params["motsCles"] = q if q else "emploi" 
             
@@ -200,7 +199,6 @@ def fetch_france_travail(requetes, zone_info, distance_km):
             resp = requests.get(base_url, headers=headers, params=params, timeout=12)
             if resp.status_code in [200, 206]:
                 for item in resp.json().get("resultats", []):
-                    # Extraction des coordonnées GPS si disponibles pour la carte
                     lieu = item.get("lieuTravail", {})
                     offres.append({
                         "source": "France Travail",
@@ -221,7 +219,7 @@ def fetch_france_travail(requetes, zone_info, distance_km):
     return offres, "OK"
 
 # -------------------------------------------------------------
-# 6. CONNECTEURS EXTERNES OPTIMISÉS
+# 6. CONNECTEURS EXTERNES CORRIGÉS
 # -------------------------------------------------------------
 def fetch_adzuna(requetes, zone_info, distance_km):
     if not ADZUNA_APP_ID or not ADZUNA_APP_KEY: return [], "Identifiants Adzuna manquants"
@@ -250,7 +248,7 @@ def fetch_adzuna(requetes, zone_info, distance_km):
                     "titre": item.get("title", "").replace("<strong>", "").replace("</strong>", ""),
                     "entreprise": item.get("company", {}).get("display_name", "Entreprise"),
                     "ville": loc.get("display_name", "Sud"),
-                    "lat": zone_info["lat"], # Adzuna ne renvoie pas toujours de GPS précis, on centre sur la zone
+                    "lat": zone_info["lat"],
                     "lon": zone_info["lon"],
                     "type_contrat": item.get("contract_type", "Non spécifié"),
                     "salaire": f"{int(item.get('salary_min', 0))} € - {int(item.get('salary_max', 0))} €" if item.get('salary_min') else "Non spécifié",
@@ -306,10 +304,12 @@ def fetch_jsearch(requetes, zone_info, distance_km):
     offres = []
     url = "https://jsearch-mega.p.rapidapi.com/search"
     term = requetes[0] if (requetes and requetes[0]) else "emploi"
-    query_str = f"{term} in {zone_info['search_city']}, France"
+    
+    # CORRECTION RAPIDAPI : On intègre la ville et on retire le paramètre 'distance' non géré par JSearch
+    query_str = f"{term} near {zone_info['search_city']}, France"
     
     headers = {"x-rapidapi-key": RAPIDAPI_KEY, "x-rapidapi-host": "jsearch-mega.p.rapidapi.com"}
-    params = {"query": query_str, "page": "1", "num_pages": "1", "distance": str(distance_km), "date_posted": "all"}
+    params = {"query": query_str, "page": "1", "num_pages": "1", "date_posted": "all"}
     
     try:
         r = requests.get(url, headers=headers, params=params, timeout=9)
@@ -395,7 +395,6 @@ if btn_chercher or "resultats" not in st.session_state:
             ft_res, ft_msg = fetch_france_travail(requetes_calculees, zone_info, rayon)
             toutes_offres.extend(ft_res)
             stats_sources["France Travail"] = len(ft_res)
-            if ft_msg != "OK": st.error(f"⚠️ Alerte France Travail : {ft_msg}")
                 
         if "Adzuna" in sources_actives:
             adz_res, adz_msg = fetch_adzuna(requetes_calculees, zone_info, rayon)
@@ -433,7 +432,7 @@ if stats_aff:
     st.caption(f"📊 Flux collectés : {details_sources}")
 
 # -------------------------------------------------------------
-# 10. ONGLETS D'AFFICHAGE (CARTE INTERACTIVE CORRIGÉE)
+# 10. ONGLETS D'AFFICHAGE (CATALOGUE FORMATIONS ENRICHI)
 # -------------------------------------------------------------
 tab_liste, tab_map, tab_cpf = st.tabs(["📋 Liste des offres", "🗺️ Carte interactive", "🎓 Formations & CPF"])
 
@@ -462,7 +461,6 @@ with tab_map:
     st.subheader(f"Cartographie des opportunités : {zone_choisie}")
     m = folium.Map(location=[zone_info["lat"], zone_info["lon"]], zoom_start=10)
     
-    # Cercle du rayon de recherche
     if not zone_info["is_region"]:
         folium.Circle(
             location=[zone_info["lat"], zone_info["lon"]], 
@@ -473,14 +471,12 @@ with tab_map:
             popup=f"Rayon couvert : {rayon} km"
         ).add_to(m)
         
-    # Marqueur principal de la zone recherchée
     folium.Marker(
         [zone_info["lat"], zone_info["lon"]], 
         popup=f"Centre : {zone_choisie}", 
         icon=folium.Icon(color="red", icon="bullseye", prefix="fa")
     ).add_to(m)
     
-    # Ajout des épingles pour chaque offre récupérée
     for job in offres_affichees:
         try:
             lat_f = float(job.get("lat", zone_info["lat"]))
@@ -500,37 +496,27 @@ with tab_cpf:
     sujet_formation = mot_cle.upper() if mot_cle else "TOUS SECTEURS"
     lieu_dynamique = f"{zone_info['search_city']} et bassin de {rayon} km"
     
-    st.subheader(f"Formations & CPF ({sujet_formation})")
-    st.write(f"Opportunités d'évolution identifiées pour la zone **{lieu_dynamique}** :")
+    st.subheader(f"Formations & Financements CPF ({sujet_formation})")
+    st.write(f"Catalogue des certifications et parcours d'évolution identifiés pour la zone **{lieu_dynamique}** :")
     
-    st.markdown(f"""
-    <div class="job-card">
-        <div class="job-title">Titre Professionnel & Certification {sujet_formation}</div>
-        <div class="job-company">🎓 AFPA / GRETA Occitanie</div>
-        <div class="job-badges">
-            <span class="badge badge-loc">📍 {lieu_dynamique} (Présentiel ou Visio)</span>
-            <span class="badge badge-salary">💰 100% Eligible CPF / France Travail</span>
-        </div>
-        <div class="job-desc">Mettez à jour vos compétences et obtenez une certification reconnue par l'État pour maximiser vos chances de recrutement sur ce bassin d'emploi.</div>
-    </div>
+    formations_catalogue = [
+        {"titre": f"Titre Professionnel & Certification {sujet_formation}", "org": "AFPA / GRETA Occitanie", "loc": f"{lieu_dynamique} (Présentiel ou Visio)", "fin": "100% Éligible CPF / France Travail", "desc": "Mettez à jour vos compétences et obtenez une certification reconnue par l'État pour maximiser vos chances de recrutement."},
+        {"titre": "Management, Réglementation & Normes Qualité", "org": "CNAM Occitanie / Apave", "loc": "Montpellier / Nîmes / Distanciel", "fin": "Plan Entreprise / OPCO / CPF", "desc": "Formations courtes et spécialisées adaptées aux professionnels souhaitant évoluer vers des postes à responsabilité."},
+        {"titre": f"Validation des Acquis de l'Expérience (VAE) - {sujet_formation}", "org": "Région Occitanie", "loc": f"Accompagnement de proximité ({lieu_dynamique})", "fin": "Prise en charge intégrale Région", "desc": "Transformez votre expérience acquise sur le terrain en un diplôme officiel sans retourner sur les bancs de l'école."},
+        {"titre": "Bilan de Compétences & Reconversion Métiers d'Avenir", "org": "APEC / Le Fongecif Occitanie", "loc": f"{lieu_dynamique} & Distanciel", "fin": "Financement CPF Intégral", "desc": "Faites le point sur vos aptitudes professionnelles et construisez une transition de carrière sécurisée sur le bassin montpelliérain."},
+        {"titre": "Anglais Professionnel & Compétences Numériques (Certifications CléA)", "org": "GRETA Montpellier Littoral", "loc": "Centres de formation locaux & E-learning", "fin": "Compte Personnel de Formation (CPF)", "desc": "Validez les compétences transversales indispensables exigées par les recruteurs du secteur."}
+    ]
     
-    <div class="job-card">
-        <div class="job-title">Management, Réglementation & Normes Qualité</div>
-        <div class="job-company">🎓 CNAM Occitanie / Apave</div>
-        <div class="job-badges">
-            <span class="badge badge-loc">📍 Accompagnement Région Occitanie</span>
-            <span class="badge badge-salary">💰 Plan Entreprise / OPCO / CPF</span>
+    for f in formations_catalogue:
+        st.markdown(f"""
+        <div class="job-card">
+            <div class="job-title">{f['titre']}</div>
+            <div class="job-company">🎓 {f['org']}</div>
+            <div class="job-badges">
+                <span class="badge badge-loc">📍 {f['loc']}</span>
+                <span class="badge badge-salary">💰 {f['fin']}</span>
+            </div>
+            <div class="job-desc">{f['desc']}</div>
         </div>
-        <div class="job-desc">Formations courtes et spécialisées adaptées aux professionnels souhaitant évoluer vers des postes à responsabilité.</div>
-    </div>
-    
-    <div class="job-card">
-        <div class="job-title">Validation des Acquis de l'Expérience (VAE)</div>
-        <div class="job-company">🎓 Région Occitanie</div>
-        <div class="job-badges">
-            <span class="badge badge-loc">📍 {lieu_dynamique} (Accompagnement de proximité)</span>
-            <span class="badge badge-salary">💰 Prise en charge intégrale Région</span>
-        </div>
-        <div class="job-desc">Transformez votre expérience acquise sur le terrain en un diplôme officiel sans retourner sur les bancs de l'école.</div>
-    </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
+        st.markdown("<div style='margin-bottom: 12px;'></div>", unsafe_allow_html=True)
