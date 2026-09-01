@@ -81,7 +81,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -------------------------------------------------------------
-# 2. RÉCUPÉRATION DES SECRETS (BLINDÉ LOCAL & CLOUD)
+# 2. RÉCUPÉRATION DES SECRETS
 # -------------------------------------------------------------
 def get_secret(key, default=""):
     try:
@@ -142,7 +142,7 @@ def preparer_requetes(mot_cle):
     return [mot_cle.strip()]
 
 # -------------------------------------------------------------
-# 5. CONNECTEUR FRANCE TRAVAIL (AVEC DIAGNOSTIC)
+# 5. CONNECTEUR FRANCE TRAVAIL (HAUT DÉBIT)
 # -------------------------------------------------------------
 def get_ft_token(client_id, client_secret):
     if not client_id or not client_secret:
@@ -171,8 +171,6 @@ def get_ft_token(client_id, client_secret):
             st.session_state["ft_token_exp"] = time.time() + 800
             return token, "OK"
         return None, f"Erreur Auth {r.status_code} : {r.text}"
-    except requests.exceptions.Timeout:
-        return None, "Serveur FT injoignable (Timeout)"
     except Exception as e:
         return None, str(e)
 
@@ -190,7 +188,8 @@ def fetch_france_travail(requetes, zone_info, distance_km):
     }
     
     for q in requetes[:3]:
-        params = {"range": "0-49", "sort": "2"}
+        # On élargit la plage à 0-149 pour récupérer beaucoup plus d'offres
+        params = {"range": "0-149", "sort": "2"}
         params["motsCles"] = q if q else "emploi" 
             
         if zone_info.get("code_insee"):
@@ -201,26 +200,28 @@ def fetch_france_travail(requetes, zone_info, distance_km):
             resp = requests.get(base_url, headers=headers, params=params, timeout=12)
             if resp.status_code in [200, 206]:
                 for item in resp.json().get("resultats", []):
+                    # Extraction des coordonnées GPS si disponibles pour la carte
+                    lieu = item.get("lieuTravail", {})
                     offres.append({
                         "source": "France Travail",
                         "id": f"FT_{item.get('id')}",
                         "titre": item.get("intitule", "Poste sans titre"),
                         "entreprise": item.get("entreprise", {}).get("nom", "Confidentiel"),
-                        "ville": item.get("lieuTravail", {}).get("libelle", "Sud"),
+                        "ville": lieu.get("libelle", "Sud"),
+                        "lat": lieu.get("latitude", zone_info["lat"]),
+                        "lon": lieu.get("longitude", zone_info["lon"]),
                         "type_contrat": item.get("typeContratLibelle", item.get("typeContrat", "Non spécifié")),
                         "salaire": item.get("salaire", {}).get("libelle", "Non spécifié"),
                         "description": item.get("description", "")[:240] + "...",
                         "url": item.get("origineOffre", {}).get("urlOrigine", f"https://candidat.francetravail.fr/offres/recherche/detail/{item.get('id')}"),
                         "date": item.get("dateCreation", "")[:10]
                     })
-            else:
-                return offres, f"Erreur Recherche {resp.status_code} : {resp.text}"
-        except Exception as e:
-            return offres, f"Erreur de connexion : {str(e)}"
+        except Exception:
+            continue
     return offres, "OK"
 
 # -------------------------------------------------------------
-# 6. CONNECTEURS EXTERNES (ADZUNA, JOOBLE, JSEARCH-MEGA)
+# 6. CONNECTEURS EXTERNES OPTIMISÉS
 # -------------------------------------------------------------
 def fetch_adzuna(requetes, zone_info, distance_km):
     if not ADZUNA_APP_ID or not ADZUNA_APP_KEY: return [], "Identifiants Adzuna manquants"
@@ -242,10 +243,24 @@ def fetch_adzuna(requetes, zone_info, distance_km):
         r = requests.get(base_url, params=params, timeout=8)
         if r.status_code == 200:
             for item in r.json().get("results", []):
-                offres.append({"source": "Adzuna", "id": f"ADZ_{item.get('id')}", "titre": item.get("title", "").replace("<strong>", "").replace("</strong>", ""), "entreprise": item.get("company", {}).get("display_name", "Entreprise"), "ville": item.get("location", {}).get("display_name", "Sud"), "type_contrat": item.get("contract_type", "Non spécifié"), "salaire": f"{int(item.get('salary_min', 0))} € - {int(item.get('salary_max', 0))} €" if item.get('salary_min') else "Non spécifié", "description": item.get("description", "")[:240] + "...", "url": item.get("redirect_url", "#"), "date": item.get("created", "")[:10]})
+                loc = item.get("location", {})
+                offres.append({
+                    "source": "Adzuna",
+                    "id": f"ADZ_{item.get('id')}",
+                    "titre": item.get("title", "").replace("<strong>", "").replace("</strong>", ""),
+                    "entreprise": item.get("company", {}).get("display_name", "Entreprise"),
+                    "ville": loc.get("display_name", "Sud"),
+                    "lat": zone_info["lat"], # Adzuna ne renvoie pas toujours de GPS précis, on centre sur la zone
+                    "lon": zone_info["lon"],
+                    "type_contrat": item.get("contract_type", "Non spécifié"),
+                    "salaire": f"{int(item.get('salary_min', 0))} € - {int(item.get('salary_max', 0))} €" if item.get('salary_min') else "Non spécifié",
+                    "description": item.get("description", "")[:240] + "...",
+                    "url": item.get("redirect_url", "#"),
+                    "date": item.get("created", "")[:10]
+                })
             return offres, "OK"
         else:
-            return [], f"Erreur {r.status_code} : {r.text}"
+            return [], f"Erreur {r.status_code}"
     except Exception as e: 
         return [], str(e)
 
@@ -266,10 +281,23 @@ def fetch_jooble(requetes, zone_info, distance_km):
         r = requests.post(url, json=payload, timeout=8)
         if r.status_code == 200:
             for item in r.json().get("jobs", []):
-                offres.append({"source": "Jooble", "id": f"JB_{item.get('id')}", "titre": item.get("title", ""), "entreprise": item.get("company", "Entreprise"), "ville": item.get("location", "Sud"), "type_contrat": item.get("type", "Non spécifié"), "salaire": item.get("salary", "Non spécifié") or "Non spécifié", "description": item.get("snippet", "")[:240].replace("<b>", "").replace("</b>", "") + "...", "url": item.get("link", "#"), "date": item.get("updated", "")[:10]})
+                offres.append({
+                    "source": "Jooble",
+                    "id": f"JB_{item.get('id')}",
+                    "titre": item.get("title", ""),
+                    "entreprise": item.get("company", "Entreprise"),
+                    "ville": item.get("location", "Sud"),
+                    "lat": zone_info["lat"],
+                    "lon": zone_info["lon"],
+                    "type_contrat": item.get("type", "Non spécifié"),
+                    "salaire": item.get("salary", "Non spécifié") or "Non spécifié",
+                    "description": item.get("snippet", "")[:240].replace("<b>", "").replace("</b>", "") + "...",
+                    "url": item.get("link", "#"),
+                    "date": item.get("updated", "")[:10]
+                })
             return offres, "OK"
         else:
-            return [], f"Erreur {r.status_code} : {r.text[:100]}"
+            return [], f"Erreur {r.status_code}"
     except Exception as e: 
         return [], str(e)
 
@@ -287,10 +315,23 @@ def fetch_jsearch(requetes, zone_info, distance_km):
         r = requests.get(url, headers=headers, params=params, timeout=9)
         if r.status_code == 200:
             for item in r.json().get("data", []):
-                offres.append({"source": "Indeed/LinkedIn", "id": f"JS_{item.get('job_id')}", "titre": item.get("job_title", ""), "entreprise": item.get("employer_name", "Recruteur"), "ville": f"{item.get('job_city', '')} ({item.get('job_state', 'Occitanie')})", "type_contrat": item.get("job_employment_type", "Non spécifié"), "salaire": f"{item.get('job_min_salary', '')} - {item.get('job_max_salary', '')} {item.get('job_salary_currency', 'EUR')}" if item.get('job_min_salary') else "Non spécifié", "description": item.get("job_description", "")[:240] + "...", "url": item.get("job_apply_link", item.get("job_google_link", "#")), "date": (item.get("job_posted_at_datetime_utc", "") or "")[:10]})
+                offres.append({
+                    "source": "Indeed/LinkedIn",
+                    "id": f"JS_{item.get('job_id')}",
+                    "titre": item.get("job_title", ""),
+                    "entreprise": item.get("employer_name", "Recruteur"),
+                    "ville": f"{item.get('job_city', '')} ({item.get('job_state', 'Occitanie')})",
+                    "lat": item.get("job_latitude", zone_info["lat"]) or zone_info["lat"],
+                    "lon": item.get("job_longitude", zone_info["lon"]) or zone_info["lon"],
+                    "type_contrat": item.get("job_employment_type", "Non spécifié"),
+                    "salaire": f"{item.get('job_min_salary', '')} - {item.get('job_max_salary', '')} {item.get('job_salary_currency', 'EUR')}" if item.get('job_min_salary') else "Non spécifié",
+                    "description": item.get("job_description", "")[:240] + "...",
+                    "url": item.get("job_apply_link", item.get("job_google_link", "#")),
+                    "date": (item.get("job_posted_at_datetime_utc", "") or "")[:10]
+                })
             return offres, "OK"
         else:
-            return [], f"Erreur {r.status_code} : {r.text[:100]}"
+            return [], f"Erreur {r.status_code}"
     except Exception as e: 
         return [], str(e)
 
@@ -360,19 +401,16 @@ if btn_chercher or "resultats" not in st.session_state:
             adz_res, adz_msg = fetch_adzuna(requetes_calculees, zone_info, rayon)
             toutes_offres.extend(adz_res)
             stats_sources["Adzuna"] = len(adz_res)
-            if adz_msg != "OK": st.warning(f"⚠️ Alerte Adzuna : {adz_msg}")
             
         if "Jooble" in sources_actives:
             jb_res, jb_msg = fetch_jooble(requetes_calculees, zone_info, rayon)
             toutes_offres.extend(jb_res)
             stats_sources["Jooble"] = len(jb_res)
-            if jb_msg != "OK": st.warning(f"⚠️ Alerte Jooble : {jb_msg}")
             
         if "Indeed & LinkedIn (JSearch)" in sources_actives:
             js_res, js_msg = fetch_jsearch(requetes_calculees, zone_info, rayon)
             toutes_offres.extend(js_res)
             stats_sources["Indeed/LinkedIn"] = len(js_res)
-            if js_msg != "OK": st.warning(f"⚠️ Alerte Indeed/LinkedIn : {js_msg}")
         
         uniques = {}
         for off in toutes_offres:
@@ -395,7 +433,7 @@ if stats_aff:
     st.caption(f"📊 Flux collectés : {details_sources}")
 
 # -------------------------------------------------------------
-# 10. ONGLETS D'AFFICHAGE RESPONSIVE
+# 10. ONGLETS D'AFFICHAGE (CARTE INTERACTIVE CORRIGÉE)
 # -------------------------------------------------------------
 tab_liste, tab_map, tab_cpf = st.tabs(["📋 Liste des offres", "🗺️ Carte interactive", "🎓 Formations & CPF"])
 
@@ -421,11 +459,42 @@ with tab_liste:
             st.markdown("<div style='margin-bottom: 16px;'></div>", unsafe_allow_html=True)
 
 with tab_map:
-    st.subheader(f"Zone couverte : {zone_choisie}")
-    m = folium.Map(location=[zone_info["lat"], zone_info["lon"]], zoom_start=9)
-    folium.Circle(location=[zone_info["lat"], zone_info["lon"]], radius=rayon * 1000, color="#2563eb", fill=True, fill_opacity=0.15, popup=f"Rayon couvert : {rayon} km").add_to(m)
-    folium.Marker([zone_info["lat"], zone_info["lon"]], popup=f"{zone_choisie}", icon=folium.Icon(color="blue", icon="bullseye", prefix="fa")).add_to(m)
-    st_folium(m, width="100%", height=450)
+    st.subheader(f"Cartographie des opportunités : {zone_choisie}")
+    m = folium.Map(location=[zone_info["lat"], zone_info["lon"]], zoom_start=10)
+    
+    # Cercle du rayon de recherche
+    if not zone_info["is_region"]:
+        folium.Circle(
+            location=[zone_info["lat"], zone_info["lon"]], 
+            radius=rayon * 1000, 
+            color="#2563eb", 
+            fill=True, 
+            fill_opacity=0.1, 
+            popup=f"Rayon couvert : {rayon} km"
+        ).add_to(m)
+        
+    # Marqueur principal de la zone recherchée
+    folium.Marker(
+        [zone_info["lat"], zone_info["lon"]], 
+        popup=f"Centre : {zone_choisie}", 
+        icon=folium.Icon(color="red", icon="bullseye", prefix="fa")
+    ).add_to(m)
+    
+    # Ajout des épingles pour chaque offre récupérée
+    for job in offres_affichees:
+        try:
+            lat_f = float(job.get("lat", zone_info["lat"]))
+            lon_f = float(job.get("lon", zone_info["lon"]))
+            popup_html = f"<b>{job['titre']}</b><br>🏢 {job['entreprise']}<br>📍 {job['ville']}<br><a href='{job['url']}' target='_blank'>Voir l'offre</a>"
+            folium.Marker(
+                [lat_f, lon_f],
+                popup=folium.Popup(popup_html, max_width=300),
+                icon=folium.Icon(color="blue", icon="briefcase", prefix="fa")
+            ).add_to(m)
+        except Exception:
+            continue
+            
+    st_folium(m, width="100%", height=500)
 
 with tab_cpf:
     sujet_formation = mot_cle.upper() if mot_cle else "TOUS SECTEURS"
