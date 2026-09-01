@@ -7,7 +7,7 @@ from streamlit_folium import st_folium
 from dotenv import load_dotenv
 
 # -------------------------------------------------------------
-# 1. CONFIGURATION RESPONSIVE
+# 1. INITIALISATION & CONFIGURATION RESPONSIVE
 # -------------------------------------------------------------
 load_dotenv()
 
@@ -34,6 +34,10 @@ st.markdown("""
         padding: 16px;
         margin-bottom: 12px;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .job-card:hover {
+        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.08);
     }
     .job-title {
         font-size: 1.15rem;
@@ -80,7 +84,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -------------------------------------------------------------
-# 2. RÉCUPÉRATION & NETTOYAGE DES CLÉS SECRÈTES
+# 2. RÉCUPÉRATION DES SECRETS
 # -------------------------------------------------------------
 def get_secret(key, default=""):
     val = st.secrets.get(key, os.getenv(key, default))
@@ -140,7 +144,7 @@ ZONES_SUD = {
 }
 
 # -------------------------------------------------------------
-# 4. RECHERCHE ÉLARGIE TRANSPARENTE
+# 4. ÉLARGISSEMENT TRANSPARENT DES TERMES
 # -------------------------------------------------------------
 SYNONYMES = {
     "hse": ["HSE", "QSE", "SSE", "sécurité environnement", "prévention des risques", "animateur sécurité"],
@@ -162,7 +166,7 @@ def preparer_requetes(mot_cle):
     return [mot_cle.strip()]
 
 # -------------------------------------------------------------
-# 5. CONNECTEUR FRANCE TRAVAIL SÉCURISÉ & ROBUSTE
+# 5. CONNECTEUR FRANCE TRAVAIL OPTIMISÉ
 # -------------------------------------------------------------
 @st.cache_data(ttl=900)
 def get_ft_token(client_id, client_secret):
@@ -186,7 +190,7 @@ def get_ft_token(client_id, client_secret):
             return r.json().get("access_token"), "OK"
         return None, f"Erreur {r.status_code} : {r.text[:80]}"
     except requests.exceptions.Timeout:
-        return None, "Serveur France Travail inaccessible (délai dépassé)"
+        return None, "Délai d'attente dépassé (serveur FT lent)"
     except Exception as e:
         return None, str(e)
 
@@ -375,7 +379,7 @@ def correspond_contrat(job, contrats_selectionnes):
     return False
 
 # -------------------------------------------------------------
-# 8. INTERFACE STREAMLIT
+# 8. INTERFACE UTILISATEUR
 # -------------------------------------------------------------
 st.title("🎯 JobRadar Sud & Occitanie")
 st.caption("Agrégateur d'opportunités en direct : France Travail, Adzuna, Jooble, Indeed & LinkedIn")
@@ -413,7 +417,7 @@ with st.expander("⚙️ Plateformes interrogées"):
 btn_chercher = st.button("🚀 Lancer la recherche", type="primary", use_container_width=True)
 
 # -------------------------------------------------------------
-# 9. EXÉCUTION DE LA RECHERCHE & STATS SOURCES
+# 9. EXÉCUTION & STATISTIQUES
 # -------------------------------------------------------------
 requetes_calculees = preparer_requetes(mot_cle)
 
@@ -464,13 +468,12 @@ titre_metier = f" pour « {mot_cle} »" if mot_cle else ""
 precision_geo = "Toute l'Occitanie" if zone_info["is_region"] else f"{zone_choisie.split()[0]} + {rayon} km"
 st.markdown(f"### **{len(offres_affichees)} opportunités répertoriées**{titre_metier} ({precision_geo})")
 
-# Résumé des sources collectées
 if stats_aff:
     details_sources = " | ".join([f"**{src}** : {cnt}" for src, cnt in stats_aff.items()])
     st.caption(f"📊 Flux collectés : {details_sources}")
 
 # -------------------------------------------------------------
-# 10. ONGLETS D'AFFICHAGE
+# 10. ONGLETS
 # -------------------------------------------------------------
 tab_liste, tab_map, tab_cpf = st.tabs(["📋 Liste des offres", "🗺️ Carte interactive", "🎓 Formations & CPF"])
 
