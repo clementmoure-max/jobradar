@@ -81,7 +81,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -------------------------------------------------------------
-# 2. RÉCUPÉRATION DES SECRETS
+# 2. RÉCUPÉRATION DES SECRETS (BLINDÉ LOCAL & CLOUD)
 # -------------------------------------------------------------
 def get_secret(key, default=""):
     try:
@@ -100,7 +100,7 @@ JOOBLE_API_KEY = get_secret("JOOBLE_API_KEY")
 RAPIDAPI_KEY = get_secret("RAPIDAPI_KEY")
 
 # -------------------------------------------------------------
-# 3. RÉFÉRENTIEL GÉOGRAPHIQUE
+# 3. RÉFÉRENTIEL GÉOGRAPHIQUE RESTREINT
 # -------------------------------------------------------------
 ZONES_SUD = {
     "Cournonsec (34)": {
@@ -142,11 +142,11 @@ def preparer_requetes(mot_cle):
     return [mot_cle.strip()]
 
 # -------------------------------------------------------------
-# 5. CONNECTEUR FRANCE TRAVAIL (CORRECTIF 400)
+# 5. CONNECTEUR FRANCE TRAVAIL (AVEC DIAGNOSTIC)
 # -------------------------------------------------------------
 def get_ft_token(client_id, client_secret):
     if not client_id or not client_secret:
-        return None, "Identifiants FT manquants"
+        return None, "Identifiants FT manquants dans les secrets."
     
     if "ft_token" in st.session_state and "ft_token_exp" in st.session_state:
         if time.time() < st.session_state["ft_token_exp"]:
@@ -170,7 +170,8 @@ def get_ft_token(client_id, client_secret):
             st.session_state["ft_token"] = token
             st.session_state["ft_token_exp"] = time.time() + 800
             return token, "OK"
-        return None, f"Erreur Auth {r.status_code}"
+        # AFFICHAGE DE L'ERREUR EXACTE :
+        return None, f"Erreur Auth {r.status_code} : {r.text}"
     except requests.exceptions.Timeout:
         return None, "Serveur FT injoignable (Timeout)"
     except Exception as e:
@@ -191,7 +192,6 @@ def fetch_france_travail(requetes, zone_info, distance_km):
     
     for q in requetes[:3]:
         params = {"range": "0-49", "sort": "2"}
-        # Injection du mot-clé fantôme si la recherche est vide pour éviter l'erreur 400
         params["motsCles"] = q if q else "emploi" 
             
         if zone_info.get("code_insee"):
@@ -200,7 +200,6 @@ def fetch_france_travail(requetes, zone_info, distance_km):
             
         try:
             resp = requests.get(base_url, headers=headers, params=params, timeout=12)
-
             if resp.status_code in [200, 206]:
                 for item in resp.json().get("resultats", []):
                     offres.append({
@@ -216,16 +215,16 @@ def fetch_france_travail(requetes, zone_info, distance_km):
                         "date": item.get("dateCreation", "")[:10]
                     })
             else:
-                return [], f"Erreur Recherche {resp.status_code}"
-        except Exception:
-            continue
+                return offres, f"Erreur Recherche {resp.status_code} : {resp.text}"
+        except Exception as e:
+            return offres, f"Erreur de connexion : {str(e)}"
     return offres, "OK"
 
 # -------------------------------------------------------------
-# 6. CONNECTEURS EXTERNES (CORRECTIFS MOTS-CLÉS VIDES)
+# 6. CONNECTEURS EXTERNES (AVEC DIAGNOSTIC)
 # -------------------------------------------------------------
 def fetch_adzuna(requetes, zone_info, distance_km):
-    if not ADZUNA_APP_ID or not ADZUNA_APP_KEY: return []
+    if not ADZUNA_APP_ID or not ADZUNA_APP_KEY: return [], "Identifiants Adzuna manquants"
     offres = []
     base_url = "https://api.adzuna.com/v1/api/jobs/fr/search/1"
     q_str = " OR ".join([f'"{q}"' if " " in q else q for q in requetes[:3] if q])
@@ -233,7 +232,7 @@ def fetch_adzuna(requetes, zone_info, distance_km):
     params = {
         "app_id": ADZUNA_APP_ID,
         "app_key": ADZUNA_APP_KEY,
-        "what": q_str if q_str else "emploi", # Prévention anti-vide
+        "what": q_str if q_str else "emploi",
         "where": zone_info["search_city"],
         "results_per_page": 50,
         "distance": distance_km,
@@ -245,11 +244,14 @@ def fetch_adzuna(requetes, zone_info, distance_km):
         if r.status_code == 200:
             for item in r.json().get("results", []):
                 offres.append({"source": "Adzuna", "id": f"ADZ_{item.get('id')}", "titre": item.get("title", "").replace("<strong>", "").replace("</strong>", ""), "entreprise": item.get("company", {}).get("display_name", "Entreprise"), "ville": item.get("location", {}).get("display_name", "Sud"), "type_contrat": item.get("contract_type", "Non spécifié"), "salaire": f"{int(item.get('salary_min', 0))} € - {int(item.get('salary_max', 0))} €" if item.get('salary_min') else "Non spécifié", "description": item.get("description", "")[:240] + "...", "url": item.get("redirect_url", "#"), "date": item.get("created", "")[:10]})
-    except Exception: pass
-    return offres
+            return offres, "OK"
+        else:
+            return [], f"Erreur {r.status_code} : {r.text}"
+    except Exception as e: 
+        return [], str(e)
 
 def fetch_jooble(requetes, zone_info, distance_km):
-    if not JOOBLE_API_KEY: return []
+    if not JOOBLE_API_KEY: return [], "Clé API Jooble manquante"
     offres = []
     url = f"https://jooble.org/api/{JOOBLE_API_KEY}"
     keywords = " ".join([q for q in requetes[:2] if q])
@@ -258,7 +260,7 @@ def fetch_jooble(requetes, zone_info, distance_km):
         "location": zone_info["search_city"],
         "radius": str(distance_km),
         "page": 1,
-        "keywords": keywords if keywords else "emploi" # Le vide bloque l'API Jooble
+        "keywords": keywords if keywords else "emploi" 
     }
         
     try:
@@ -266,11 +268,14 @@ def fetch_jooble(requetes, zone_info, distance_km):
         if r.status_code == 200:
             for item in r.json().get("jobs", []):
                 offres.append({"source": "Jooble", "id": f"JB_{item.get('id')}", "titre": item.get("title", ""), "entreprise": item.get("company", "Entreprise"), "ville": item.get("location", "Sud"), "type_contrat": item.get("type", "Non spécifié"), "salaire": item.get("salary", "Non spécifié") or "Non spécifié", "description": item.get("snippet", "")[:240].replace("<b>", "").replace("</b>", "") + "...", "url": item.get("link", "#"), "date": item.get("updated", "")[:10]})
-    except Exception: pass
-    return offres
+            return offres, "OK"
+        else:
+            return [], f"Erreur {r.status_code} : {r.text[:100]}"
+    except Exception as e: 
+        return [], str(e)
 
 def fetch_jsearch(requetes, zone_info, distance_km):
-    if not RAPIDAPI_KEY: return []
+    if not RAPIDAPI_KEY: return [], "Clé JSearch/RapidAPI manquante"
     offres = []
     url = "https://jsearch.p.rapidapi.com/search"
     term = requetes[0] if (requetes and requetes[0]) else "emploi"
@@ -284,8 +289,11 @@ def fetch_jsearch(requetes, zone_info, distance_km):
         if r.status_code == 200:
             for item in r.json().get("data", []):
                 offres.append({"source": "Indeed/LinkedIn", "id": f"JS_{item.get('job_id')}", "titre": item.get("job_title", ""), "entreprise": item.get("employer_name", "Recruteur"), "ville": f"{item.get('job_city', '')} ({item.get('job_state', 'Occitanie')})", "type_contrat": item.get("job_employment_type", "Non spécifié"), "salaire": f"{item.get('job_min_salary', '')} - {item.get('job_max_salary', '')} {item.get('job_salary_currency', 'EUR')}" if item.get('job_min_salary') else "Non spécifié", "description": item.get("job_description", "")[:240] + "...", "url": item.get("job_apply_link", item.get("job_google_link", "#")), "date": (item.get("job_posted_at_datetime_utc", "") or "")[:10]})
-    except Exception: pass
-    return offres
+            return offres, "OK"
+        else:
+            return [], f"Erreur {r.status_code} : {r.text[:100]}"
+    except Exception as e: 
+        return [], str(e)
 
 # -------------------------------------------------------------
 # 7. SCANNER DE CONTRATS
@@ -347,22 +355,25 @@ if btn_chercher or "resultats" not in st.session_state:
             ft_res, ft_msg = fetch_france_travail(requetes_calculees, zone_info, rayon)
             toutes_offres.extend(ft_res)
             stats_sources["France Travail"] = len(ft_res)
-            if ft_msg != "OK": st.warning(f"⚠️ France Travail : {ft_msg}")
+            if ft_msg != "OK": st.error(f"⚠️ Alerte France Travail : {ft_msg}")
                 
         if "Adzuna" in sources_actives:
-            adz_res = fetch_adzuna(requetes_calculees, zone_info, rayon)
+            adz_res, adz_msg = fetch_adzuna(requetes_calculees, zone_info, rayon)
             toutes_offres.extend(adz_res)
             stats_sources["Adzuna"] = len(adz_res)
+            if adz_msg != "OK": st.warning(f"⚠️ Alerte Adzuna : {adz_msg}")
             
         if "Jooble" in sources_actives:
-            jb_res = fetch_jooble(requetes_calculees, zone_info, rayon)
+            jb_res, jb_msg = fetch_jooble(requetes_calculees, zone_info, rayon)
             toutes_offres.extend(jb_res)
             stats_sources["Jooble"] = len(jb_res)
+            if jb_msg != "OK": st.warning(f"⚠️ Alerte Jooble : {jb_msg}")
             
         if "Indeed & LinkedIn (JSearch)" in sources_actives:
-            js_res = fetch_jsearch(requetes_calculees, zone_info, rayon)
+            js_res, js_msg = fetch_jsearch(requetes_calculees, zone_info, rayon)
             toutes_offres.extend(js_res)
             stats_sources["Indeed/LinkedIn"] = len(js_res)
+            if js_msg != "OK": st.warning(f"⚠️ Alerte Indeed/LinkedIn : {js_msg}")
         
         uniques = {}
         for off in toutes_offres:
