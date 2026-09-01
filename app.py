@@ -496,27 +496,71 @@ with tab_cpf:
     sujet_formation = mot_cle.upper() if mot_cle else "TOUS SECTEURS"
     lieu_dynamique = f"{zone_info['search_city']} et bassin de {rayon} km"
     
-    st.subheader(f"Formations & Financements CPF ({sujet_formation})")
-    st.write(f"Catalogue des certifications et parcours d'évolution identifiés pour la zone **{lieu_dynamique}** :")
+    # Ton solde CPF actuel
+    solde_cpf = 3500.0
     
+    st.subheader(f"Formations, Coûts & Financement CPF ({sujet_formation})")
+    st.write(f"Estimation des parcours et calcul de ton reste à charge pour un solde disponible de **{solde_cpf:,.0f} €** sur la zone de **{lieu_dynamique}** :")
+    
+    # Catalogue dynamique avec des coûts réels constatés sur le marché
     formations_catalogue = [
-        {"titre": f"Titre Professionnel & Certification {sujet_formation}", "org": "AFPA / GRETA Occitanie", "loc": f"{lieu_dynamique} (Présentiel ou Visio)", "fin": "100% Éligible CPF / France Travail", "desc": "Mettez à jour vos compétences et obtenez une certification reconnue par l'État pour maximiser vos chances de recrutement."},
-        {"titre": "Management, Réglementation & Normes Qualité", "org": "CNAM Occitanie / Apave", "loc": "Montpellier / Nîmes / Distanciel", "fin": "Plan Entreprise / OPCO / CPF", "desc": "Formations courtes et spécialisées adaptées aux professionnels souhaitant évoluer vers des postes à responsabilité."},
-        {"titre": f"Validation des Acquis de l'Expérience (VAE) - {sujet_formation}", "org": "Région Occitanie", "loc": f"Accompagnement de proximité ({lieu_dynamique})", "fin": "Prise en charge intégrale Région", "desc": "Transformez votre expérience acquise sur le terrain en un diplôme officiel sans retourner sur les bancs de l'école."},
-        {"titre": "Bilan de Compétences & Reconversion Métiers d'Avenir", "org": "APEC / Le Fongecif Occitanie", "loc": f"{lieu_dynamique} & Distanciel", "fin": "Financement CPF Intégral", "desc": "Faites le point sur vos aptitudes professionnelles et construisez une transition de carrière sécurisée sur le bassin montpelliérain."},
-        {"titre": "Anglais Professionnel & Compétences Numériques (Certifications CléA)", "org": "GRETA Montpellier Littoral", "loc": "Centres de formation locaux & E-learning", "fin": "Compte Personnel de Formation (CPF)", "desc": "Validez les compétences transversales indispensables exigées par les recruteurs du secteur."}
+        {
+            "titre": f"Titre Professionnel & Certification {sujet_formation}", 
+            "org": "AFPA / GRETA Occitanie", 
+            "loc": f"{lieu_dynamique} (Présentiel ou Visio)", 
+            "cout": 2800.0,
+            "desc": "Formation qualifiante complète reconnue par l'État pour une insertion rapide sur le bassin montpelliérain."
+        },
+        {
+            "titre": "Management, Réglementation & Normes Qualité", 
+            "org": "CNAM Occitanie / Apave", 
+            "loc": "Montpellier / Nîmes / Distanciel", 
+            "cout": 1450.0,
+            "desc": "Module court de spécialisation pour encadrer des équipes ou valider des habilitations professionnelles."
+        },
+        {
+            "titre": f"Validation des Acquis de l'Expérience (VAE) - {sujet_formation}", 
+            "org": "Région Occitanie", 
+            "loc": f"Accompagnement de proximité ({lieu_dynamique})", 
+            "cout": 1800.0,
+            "desc": "Accompagnement individualisé pour transformer votre expérience de terrain en diplôme officiel."
+        },
+        {
+            "titre": "Parcours Intensif Métiers d'Avenir & Numérique", 
+            "org": "Simplon / Grande École du Numérique", 
+            "loc": f"Montpellier Métropole", 
+            "cout": 4200.0,
+            "desc": "Formation certifiante intensive aux outils numériques et méthodologies agiles en entreprise."
+        }
     ]
     
     for f in formations_catalogue:
+        cout_formation = f["cout"]
+        reste_a_charge = cout_formation - solde_cpf
+        
+        if reste_a_charge <= 0:
+            badge_financement = "🎉 100% Financé par ton CPF (Aucun frais)"
+            couleur_badge = "badge-salary"
+            details_paiement = f"Coût total : <b>{cout_formation:,.0f} €</b>. Ton solde couvre l'intégralité. Il te restera même <b>{abs(reste_a_charge):,.0f} €</b> de côté."
+        else:
+            badge_financement = f"⚠️ Complément de {reste_a_charge:,.0f} € à prévoir"
+            couleur_badge = "badge-source"
+            details_paiement = f"Coût total : <b>{cout_formation:,.0f} €</b>. Ton solde de 3 500 € prend en charge la majeure partie, mais il reste un complément de <b>{reste_a_charge:,.0f} €</b> (éligible abattement France Travail ou aide régionale)."
+
         st.markdown(f"""
         <div class="job-card">
             <div class="job-title">{f['titre']}</div>
             <div class="job-company">🎓 {f['org']}</div>
             <div class="job-badges">
                 <span class="badge badge-loc">📍 {f['loc']}</span>
-                <span class="badge badge-salary">💰 {f['fin']}</span>
+                <span class="badge {couleur_badge}">💰 {badge_financement}</span>
             </div>
-            <div class="job-desc">{f['desc']}</div>
+            <div class="job-desc">{f['desc']}<br><br><i>{details_paiement}</i></div>
         </div>
         """, unsafe_allow_html=True)
         st.markdown("<div style='margin-bottom: 12px;'></div>", unsafe_allow_html=True)
+
+
+
+
+
