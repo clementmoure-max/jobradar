@@ -81,7 +81,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -------------------------------------------------------------
-# 2. RÉCUPÉRATION DES SECRETS (BLINDÉ LOCAL & CLOUD)
+# 2. RÉCUPÉRATION DES SECRETS
 # -------------------------------------------------------------
 def get_secret(key, default=""):
     try:
@@ -100,7 +100,7 @@ JOOBLE_API_KEY = get_secret("JOOBLE_API_KEY")
 RAPIDAPI_KEY = get_secret("RAPIDAPI_KEY")
 
 # -------------------------------------------------------------
-# 3. RÉFÉRENTIEL GÉOGRAPHIQUE RESTREINT
+# 3. RÉFÉRENTIEL GÉOGRAPHIQUE
 # -------------------------------------------------------------
 ZONES_SUD = {
     "Cournonsec (34)": {
@@ -142,7 +142,7 @@ def preparer_requetes(mot_cle):
     return [mot_cle.strip()]
 
 # -------------------------------------------------------------
-# 5. CONNECTEUR FRANCE TRAVAIL (ANTI-CRASH 404 CORRIGÉ)
+# 5. CONNECTEUR FRANCE TRAVAIL (CORRECTIF 400)
 # -------------------------------------------------------------
 def get_ft_token(client_id, client_secret):
     if not client_id or not client_secret:
@@ -170,7 +170,7 @@ def get_ft_token(client_id, client_secret):
             st.session_state["ft_token"] = token
             st.session_state["ft_token_exp"] = time.time() + 800
             return token, "OK"
-        return None, f"Erreur {r.status_code} sur l'authentification"
+        return None, f"Erreur Auth {r.status_code}"
     except requests.exceptions.Timeout:
         return None, "Serveur FT injoignable (Timeout)"
     except Exception as e:
@@ -191,8 +191,8 @@ def fetch_france_travail(requetes, zone_info, distance_km):
     
     for q in requetes[:3]:
         params = {"range": "0-49", "sort": "2"}
-        if q:
-            params["motsCles"] = q 
+        # Injection du mot-clé fantôme si la recherche est vide pour éviter l'erreur 400
+        params["motsCles"] = q if q else "emploi" 
             
         if zone_info.get("code_insee"):
             params["commune"] = zone_info["code_insee"]
@@ -200,11 +200,6 @@ def fetch_france_travail(requetes, zone_info, distance_km):
             
         try:
             resp = requests.get(base_url, headers=headers, params=params, timeout=12)
-            
-            # PARE-FEU : Évite l'Erreur 400 (plus de 3000 offres sans mot-clé)
-            if resp.status_code == 400 and not q:
-                params["publieeDepuis"] = 7
-                resp = requests.get(base_url, headers=headers, params=params, timeout=12)
 
             if resp.status_code in [200, 206]:
                 for item in resp.json().get("resultats", []):
@@ -220,12 +215,14 @@ def fetch_france_travail(requetes, zone_info, distance_km):
                         "url": item.get("origineOffre", {}).get("urlOrigine", f"https://candidat.francetravail.fr/offres/recherche/detail/{item.get('id')}"),
                         "date": item.get("dateCreation", "")[:10]
                     })
+            else:
+                return [], f"Erreur Recherche {resp.status_code}"
         except Exception:
             continue
     return offres, "OK"
 
 # -------------------------------------------------------------
-# 6. CONNECTEURS EXTERNES SANS MOTS-CLÉS FORCÉS
+# 6. CONNECTEURS EXTERNES (CORRECTIFS MOTS-CLÉS VIDES)
 # -------------------------------------------------------------
 def fetch_adzuna(requetes, zone_info, distance_km):
     if not ADZUNA_APP_ID or not ADZUNA_APP_KEY: return []
@@ -236,13 +233,12 @@ def fetch_adzuna(requetes, zone_info, distance_km):
     params = {
         "app_id": ADZUNA_APP_ID,
         "app_key": ADZUNA_APP_KEY,
+        "what": q_str if q_str else "emploi", # Prévention anti-vide
         "where": zone_info["search_city"],
         "results_per_page": 50,
         "distance": distance_km,
         "content-type": "application/json"
     }
-    if q_str: 
-        params["what"] = q_str
         
     try:
         r = requests.get(base_url, params=params, timeout=8)
@@ -261,10 +257,9 @@ def fetch_jooble(requetes, zone_info, distance_km):
     payload = {
         "location": zone_info["search_city"],
         "radius": str(distance_km),
-        "page": 1
+        "page": 1,
+        "keywords": keywords if keywords else "emploi" # Le vide bloque l'API Jooble
     }
-    if keywords: 
-        payload["keywords"] = keywords
         
     try:
         r = requests.post(url, json=payload, timeout=8)
@@ -278,8 +273,8 @@ def fetch_jsearch(requetes, zone_info, distance_km):
     if not RAPIDAPI_KEY: return []
     offres = []
     url = "https://jsearch.p.rapidapi.com/search"
-    term = requetes[0] if (requetes and requetes[0]) else ""
-    query_str = f"{term} in {zone_info['search_city']}, France" if term else f"jobs in {zone_info['search_city']}, France"
+    term = requetes[0] if (requetes and requetes[0]) else "emploi"
+    query_str = f"{term} in {zone_info['search_city']}, France"
     
     headers = {"x-rapidapi-key": RAPIDAPI_KEY, "x-rapidapi-host": "jsearch.p.rapidapi.com"}
     params = {"query": query_str, "page": "1", "num_pages": "1", "distance": str(distance_km), "date_posted": "all"}
