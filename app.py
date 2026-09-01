@@ -105,9 +105,9 @@ RAPIDAPI_KEY = get_secret("RAPIDAPI_KEY")
 ZONES_SUD = {
     "Cournonsec (34)": {
         "lat": 43.5483, "lon": 3.7042, 
-        "code_insee": "34087",  # Vrai code INSEE de Cournonsec pour FT
+        "code_insee": "34087",
         "dept": "34", "region_ft": "76",
-        "search_city": "Montpellier", # Maquillage textuel pour Adzuna/Jooble
+        "search_city": "Montpellier",
         "is_region": False
     },
     "Montpellier Métropole (34)": {
@@ -142,7 +142,7 @@ def preparer_requetes(mot_cle):
     return [mot_cle.strip()]
 
 # -------------------------------------------------------------
-# 5. CONNECTEUR FRANCE TRAVAIL (ANTI-CRASH)
+# 5. CONNECTEUR FRANCE TRAVAIL (ANTI-CRASH 404 CORRIGÉ)
 # -------------------------------------------------------------
 def get_ft_token(client_id, client_secret):
     if not client_id or not client_secret:
@@ -152,7 +152,7 @@ def get_ft_token(client_id, client_secret):
         if time.time() < st.session_state["ft_token_exp"]:
             return st.session_state["ft_token"], "OK"
             
-    url = "https://entreprise.francetravail.fr/connexion/oauth2/access_key?realm=%2Fpartenaire"
+    url = "https://entreprise.francetravail.fr/connexion/oauth2/access_token?realm=%2Fpartenaire"
     headers = {
         "Content-Type": "application/x-www-form-urlencoded",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
@@ -203,7 +203,7 @@ def fetch_france_travail(requetes, zone_info, distance_km):
             
             # PARE-FEU : Évite l'Erreur 400 (plus de 3000 offres sans mot-clé)
             if resp.status_code == 400 and not q:
-                params["publieeDepuis"] = 7 # Restreint aux 7 derniers jours pour filtrer le volume
+                params["publieeDepuis"] = 7
                 resp = requests.get(base_url, headers=headers, params=params, timeout=12)
 
             if resp.status_code in [200, 206]:
