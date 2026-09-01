@@ -7,7 +7,7 @@ from streamlit_folium import st_folium
 from dotenv import load_dotenv
 
 # -------------------------------------------------------------
-# 1. INITIALISATION & CONFIGURATION RESPONSIVE
+# 1. CONFIGURATION RESPONSIVE
 # -------------------------------------------------------------
 load_dotenv()
 
@@ -34,10 +34,6 @@ st.markdown("""
         padding: 16px;
         margin-bottom: 12px;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
-        transition: transform 0.15s ease, box-shadow 0.15s ease;
-    }
-    .job-card:hover {
-        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.08);
     }
     .job-title {
         font-size: 1.15rem;
@@ -84,10 +80,11 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -------------------------------------------------------------
-# 2. RÉCUPÉRATION DES SECRETS
+# 2. RÉCUPÉRATION & NETTOYAGE DES CLÉS SECRÈTES
 # -------------------------------------------------------------
 def get_secret(key, default=""):
-    return st.secrets.get(key, os.getenv(key, default))
+    val = st.secrets.get(key, os.getenv(key, default))
+    return str(val).strip() if val else ""
 
 FT_CLIENT_ID = get_secret("FT_CLIENT_ID")
 FT_CLIENT_SECRET = get_secret("FT_CLIENT_SECRET")
@@ -97,7 +94,7 @@ JOOBLE_API_KEY = get_secret("JOOBLE_API_KEY")
 RAPIDAPI_KEY = get_secret("RAPIDAPI_KEY")
 
 # -------------------------------------------------------------
-# 3. RÉFÉRENTIEL GÉOGRAPHIQUE CORRIGÉ (MAPPING PROPRE)
+# 3. RÉFÉRENTIEL GÉOGRAPHIQUE SUD & OCCITANIE
 # -------------------------------------------------------------
 ZONES_SUD = {
     "Cournonsec / Montpellier Ouest (34)": {
@@ -143,7 +140,7 @@ ZONES_SUD = {
 }
 
 # -------------------------------------------------------------
-# 4. ÉLARGISSEMENT INTELLIGENT DES REQUÊTES
+# 4. RECHERCHE ÉLARGIE TRANSPARENTE
 # -------------------------------------------------------------
 SYNONYMES = {
     "hse": ["HSE", "QSE", "SSE", "sécurité environnement", "prévention des risques", "animateur sécurité"],
@@ -152,7 +149,6 @@ SYNONYMES = {
     "rh": ["ressources humaines", "recrutement", "gestionnaire de paie", "assistant rh"],
     "dev": ["développeur", "fullstack", "frontend", "backend", "python", "informatique"],
     "btp": ["conducteur de travaux", "chef de chantier", "ingénieur btp", "coordonnateur sps"],
-    "adv": ["administration des ventes", "assistant commercial", "relation client"],
     "logistique": ["logistique", "magasinier", "préparateur de commandes", "gestionnaire de stocks"]
 }
 
@@ -166,36 +162,39 @@ def preparer_requetes(mot_cle):
     return [mot_cle.strip()]
 
 # -------------------------------------------------------------
-# 5. CONNECTEURS DES APIS
+# 5. CONNECTEUR FRANCE TRAVAIL SÉCURISÉ & ROBUSTE
 # -------------------------------------------------------------
 @st.cache_data(ttl=900)
 def get_ft_token(client_id, client_secret):
     if not client_id or not client_secret:
-        return None
+        return None, "Identifiants FT manquants"
     url = "https://entreprise.francetravail.fr/connexion/oauth2/access_key?realm=%2Fpartenaire"
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    data = {
+        "grant_type": "client_credentials",
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "scope": "api_offresdemploiv2 o2dsoffre"
+    }
     try:
-        r = requests.post(
-            url,
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-            data={"grant_type": "client_credentials", "client_id": client_id, "client_secret": client_secret, "scope": "api_offresdemploiv2 o2dsoffre"},
-            timeout=8
-        )
+        r = requests.post(url, headers=headers, data=data, timeout=8)
         if r.status_code == 200:
-            return r.json().get("access_token")
-    except Exception:
-        pass
-    return None
+            return r.json().get("access_token"), "OK"
+        return None, f"Erreur {r.status_code} : {r.text[:80]}"
+    except Exception as e:
+        return None, str(e)
 
 def fetch_france_travail(requetes, zone_info, distance_km):
-    token = get_ft_token(FT_CLIENT_ID, FT_CLIENT_SECRET)
+    token, statut_token = get_ft_token(FT_CLIENT_ID, FT_CLIENT_SECRET)
     if not token:
-        return []
+        return [], statut_token
+    
     offres = []
     base_url = "https://api.francetravail.io/partenaire/offresdemploi/v2/offres/search"
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
     
     for q in requetes[:3]:
-        params = {"range": "0-99"}
+        params = {"range": "0-49"}
         if q:
             params["motsCles"] = q
             
@@ -203,7 +202,7 @@ def fetch_france_travail(requetes, zone_info, distance_km):
             params["region"] = zone_info["region_ft"]
         elif zone_info.get("code_insee"):
             params["commune"] = zone_info["code_insee"]
-            params["distance"] = min(distance_km, 100)
+            params["distance"] = min(max(distance_km, 10), 100)
         elif zone_info.get("dept"):
             params["departement"] = zone_info["dept"]
             
@@ -225,8 +224,11 @@ def fetch_france_travail(requetes, zone_info, distance_km):
                     })
         except Exception:
             continue
-    return offres
+    return offres, "OK"
 
+# -------------------------------------------------------------
+# 6. CONNECTEURS ADZUNA, JOOBLE & JSEARCH
+# -------------------------------------------------------------
 def fetch_adzuna(requetes, zone_info, distance_km):
     if not ADZUNA_APP_ID or not ADZUNA_APP_KEY:
         return []
@@ -338,7 +340,7 @@ def fetch_jsearch(requetes, zone_info, distance_km):
     return offres
 
 # -------------------------------------------------------------
-# 6. SCANNER DE CONTRATS
+# 7. SCANNER DE CONTRATS
 # -------------------------------------------------------------
 def correspond_contrat(job, contrats_selectionnes):
     if not contrats_selectionnes:
@@ -358,12 +360,12 @@ def correspond_contrat(job, contrats_selectionnes):
             return True
         if "partiel" in c_low and "partiel" in texte_total:
             return True
-        if "indépendant" in c_low and any(k in texte_total for k in ["indépendant", "independant", "freelance", "libéral"]):
+        if "indépendant" in c_low and any(k in texte_total for k in ["indépendant", "independant", "freelance"]):
             return True
     return False
 
 # -------------------------------------------------------------
-# 7. INTERFACE PRINCIPALE
+# 8. INTERFACE STREAMLIT
 # -------------------------------------------------------------
 st.title("🎯 JobRadar Sud & Occitanie")
 st.caption("Agrégateur d'opportunités en direct : France Travail, Adzuna, Jooble, Indeed & LinkedIn")
@@ -401,7 +403,7 @@ with st.expander("⚙️ Plateformes interrogées"):
 btn_chercher = st.button("🚀 Lancer la recherche", type="primary", use_container_width=True)
 
 # -------------------------------------------------------------
-# 8. EXÉCUTION DE LA RECHERCHE & DÉDOUBLONNAGE
+# 9. EXÉCUTION DE LA RECHERCHE & STATS SOURCES
 # -------------------------------------------------------------
 requetes_calculees = preparer_requetes(mot_cle)
 
@@ -409,16 +411,31 @@ if btn_chercher or "resultats" not in st.session_state:
     label_recherche = mot_cle if mot_cle else "Toutes opportunités"
     cible_label = "Toute l'Occitanie" if zone_info["is_region"] else f"{zone_info['search_city']} ({rayon} km)"
     
-    with st.spinner(f"Recherche de '{label_recherche}' sur {cible_label}..."):
+    with st.spinner(f"Recherche de « {label_recherche} » sur {cible_label}..."):
         toutes_offres = []
+        stats_sources = {}
+        
         if "France Travail" in sources_actives:
-            toutes_offres.extend(fetch_france_travail(requetes_calculees, zone_info, rayon))
+            ft_res, ft_msg = fetch_france_travail(requetes_calculees, zone_info, rayon)
+            toutes_offres.extend(ft_res)
+            stats_sources["France Travail"] = len(ft_res)
+            if ft_msg != "OK":
+                st.warning(f"⚠️ France Travail : {ft_msg}")
+                
         if "Adzuna" in sources_actives:
-            toutes_offres.extend(fetch_adzuna(requetes_calculees, zone_info, rayon))
+            adz_res = fetch_adzuna(requetes_calculees, zone_info, rayon)
+            toutes_offres.extend(adz_res)
+            stats_sources["Adzuna"] = len(adz_res)
+            
         if "Jooble" in sources_actives:
-            toutes_offres.extend(fetch_jooble(requetes_calculees, zone_info, rayon))
+            jb_res = fetch_jooble(requetes_calculees, zone_info, rayon)
+            toutes_offres.extend(jb_res)
+            stats_sources["Jooble"] = len(jb_res)
+            
         if "Indeed & LinkedIn (JSearch)" in sources_actives:
-            toutes_offres.extend(fetch_jsearch(requetes_calculees, zone_info, rayon))
+            js_res = fetch_jsearch(requetes_calculees, zone_info, rayon)
+            toutes_offres.extend(js_res)
+            stats_sources["Indeed/LinkedIn"] = len(js_res)
         
         uniques = {}
         for off in toutes_offres:
@@ -427,16 +444,23 @@ if btn_chercher or "resultats" not in st.session_state:
                 uniques[cle] = off
                 
         st.session_state["resultats"] = list(uniques.values())
+        st.session_state["stats_sources"] = stats_sources
 
 offres_brutes = st.session_state.get("resultats", [])
+stats_aff = st.session_state.get("stats_sources", {})
 offres_affichees = [job for job in offres_brutes if correspond_contrat(job, contrats_choisis)]
 
 titre_metier = f" pour « {mot_cle} »" if mot_cle else ""
 precision_geo = "Toute l'Occitanie" if zone_info["is_region"] else f"{zone_choisie.split()[0]} + {rayon} km"
 st.markdown(f"### **{len(offres_affichees)} opportunités répertoriées**{titre_metier} ({precision_geo})")
 
+# Résumé des sources collectées
+if stats_aff:
+    details_sources = " | ".join([f"**{src}** : {cnt}" for src, cnt in stats_aff.items()])
+    st.caption(f"📊 Flux collectés : {details_sources}")
+
 # -------------------------------------------------------------
-# 9. ONGLETS D'AFFICHAGE
+# 10. ONGLETS D'AFFICHAGE
 # -------------------------------------------------------------
 tab_liste, tab_map, tab_cpf = st.tabs(["📋 Liste des offres", "🗺️ Carte interactive", "🎓 Formations & CPF"])
 
