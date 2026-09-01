@@ -86,8 +86,19 @@ st.markdown("""
 # -------------------------------------------------------------
 # 2. RÉCUPÉRATION DES SECRETS
 # -------------------------------------------------------------
+# -------------------------------------------------------------
+# 2. RÉCUPÉRATION DES SECRETS (SÉCURISÉ LOCAL & CLOUD)
+# -------------------------------------------------------------
 def get_secret(key, default=""):
-    val = st.secrets.get(key, os.getenv(key, default))
+    # 1. Tentative de lecture dans le coffre-fort Streamlit (Cloud)
+    try:
+        if key in st.secrets:
+            return str(st.secrets[key]).strip()
+    except Exception:
+        pass # Si le fichier n'existe pas en local, on étouffe l'erreur
+        
+    # 2. Plan B : on se rabat sur le fichier .env de ton PC (Local)
+    val = os.getenv(key, default)
     return str(val).strip() if val else ""
 
 FT_CLIENT_ID = get_secret("FT_CLIENT_ID")
