@@ -170,7 +170,6 @@ def get_ft_token(client_id, client_secret):
             st.session_state["ft_token"] = token
             st.session_state["ft_token_exp"] = time.time() + 800
             return token, "OK"
-        # AFFICHAGE DE L'ERREUR EXACTE :
         return None, f"Erreur Auth {r.status_code} : {r.text}"
     except requests.exceptions.Timeout:
         return None, "Serveur FT injoignable (Timeout)"
@@ -221,7 +220,7 @@ def fetch_france_travail(requetes, zone_info, distance_km):
     return offres, "OK"
 
 # -------------------------------------------------------------
-# 6. CONNECTEURS EXTERNES (AVEC DIAGNOSTIC)
+# 6. CONNECTEURS EXTERNES (ADZUNA, JOOBLE, JSEARCH-MEGA)
 # -------------------------------------------------------------
 def fetch_adzuna(requetes, zone_info, distance_km):
     if not ADZUNA_APP_ID or not ADZUNA_APP_KEY: return [], "Identifiants Adzuna manquants"
@@ -277,11 +276,11 @@ def fetch_jooble(requetes, zone_info, distance_km):
 def fetch_jsearch(requetes, zone_info, distance_km):
     if not RAPIDAPI_KEY: return [], "Clé JSearch/RapidAPI manquante"
     offres = []
-    url = "https://jsearch.p.rapidapi.com/search"
+    url = "https://jsearch-mega.p.rapidapi.com/search"
     term = requetes[0] if (requetes and requetes[0]) else "emploi"
     query_str = f"{term} in {zone_info['search_city']}, France"
     
-    headers = {"x-rapidapi-key": RAPIDAPI_KEY, "x-rapidapi-host": "jsearch.p.rapidapi.com"}
+    headers = {"x-rapidapi-key": RAPIDAPI_KEY, "x-rapidapi-host": "jsearch-mega.p.rapidapi.com"}
     params = {"query": query_str, "page": "1", "num_pages": "1", "distance": str(distance_km), "date_posted": "all"}
     
     try:
