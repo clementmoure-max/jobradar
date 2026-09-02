@@ -19,7 +19,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Améliorations CSS : Largeur max pour écran large, effets au survol, design plus aéré
 st.markdown("""
 <style>
     .block-container {
@@ -27,7 +26,7 @@ st.markdown("""
         padding-bottom: 3rem !important;
         padding-left: 2rem !important;
         padding-right: 2rem !important;
-        max-width: 1400px !important; /* Évite l'étirement infini sur les écrans 4K */
+        max-width: 1400px !important;
         margin: 0 auto;
     }
     .job-card {
@@ -81,7 +80,7 @@ st.markdown("""
         color: #475569;
         line-height: 1.5;
         margin-bottom: 16px;
-        flex-grow: 1; /* Pousse le bouton vers le bas de la carte */
+        flex-grow: 1;
     }
     .stButton > button, .stLinkButton > a {
         border-radius: 8px !important;
@@ -148,27 +147,22 @@ def preparer_requetes(mot_cle):
     return [mot_cle.strip()]
 
 # -------------------------------------------------------------
-# 4. CONNECTEURS (EMPLOI & FORMATION)
+# 4. CONNECTEURS OFFRES D'EMPLOI
 # -------------------------------------------------------------
-def get_ft_token(client_id, client_secret, is_formation=False):
-    """Génère un token FT. Sépare les scopes Emploi et Formation pour éviter de bloquer l'un si l'autre n'est pas activé."""
+def get_ft_token(client_id, client_secret):
     if not client_id or not client_secret: return None
     
-    scope = "api_rechercheformationsv2 rfor" if is_formation else "api_offresdemploiv2 o2dsoffre"
-    cache_key = "ft_token_form" if is_formation else "ft_token_job"
-    cache_exp = f"{cache_key}_exp"
-    
-    if cache_key in st.session_state and time.time() < st.session_state[cache_exp]:
-        return st.session_state[cache_key]
+    if "ft_token_job" in st.session_state and time.time() < st.session_state["ft_token_job_exp"]:
+        return st.session_state["ft_token_job"]
             
     url = "https://entreprise.francetravail.fr/connexion/oauth2/access_token?realm=%2Fpartenaire"
-    data = {"grant_type": "client_credentials", "client_id": client_id, "client_secret": client_secret, "scope": scope}
+    data = {"grant_type": "client_credentials", "client_id": client_id, "client_secret": client_secret, "scope": "api_offresdemploiv2 o2dsoffre"}
     try:
         r = requests.post(url, data=data, timeout=8)
         if r.status_code == 200:
             token = r.json().get("access_token")
-            st.session_state[cache_key] = token
-            st.session_state[cache_exp] = time.time() + 800
+            st.session_state["ft_token_job"] = token
+            st.session_state["ft_token_job_exp"] = time.time() + 800
             return token
     except: pass
     return None
@@ -270,42 +264,62 @@ def fetch_jsearch(requetes, zone_info, distance_km):
     except: pass
     return [], "Erreur"
 
-def fetch_formations_reelles(mot_cle, zone_info):
-    """Tente de récupérer les formations via l'API France Travail (La Bonne Formation).
-    Si le développeur n'a pas activé l'API, bascule sur une recommandation ciblée."""
-    token = get_ft_token(FT_CLIENT_ID, FT_CLIENT_SECRET, is_formation=True)
-    sujet = mot_cle if mot_cle else "Numérique"
+# -------------------------------------------------------------
+# 5. CONNECTEUR LA BONNE ALTERNANCE (FORMATIONS)
+# -------------------------------------------------------------
+def fetch_lba_formations(mot_cle, lat, lon, radius):
+    term = mot_cle if mot_cle else "emploi"
     
-    # 1. Tentative API Officielle
-    if token:
-        try:
-            url = "https://api.francetravail.io/partenaire/rechercheformations/v2/recherche"
-            headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
-            params = {"romeOuFap": sujet, "codePostal": zone_info["code_postal"]}
-            
-            resp = requests.get(url, headers=headers, params=params, timeout=8)
-            if resp.status_code == 200:
-                formations = resp.json().get("resultats", [])
-                if formations:
-                    return [{
-                        "titre": f.get("intituleFormation", "Formation"),
-                        "org": f.get("organisme", {}).get("nom", "Organisme agréé"),
-                        "loc": f.get("lieuFormation", {}).get("libelle", zone_info['search_city']),
-                        "fin": "Éligible CPF" if f.get("eligibleCPF") else "Financement possible",
-                        "desc": f.get("objectif", "")[:200] + "...",
-                        "url": f.get("urlDetail", "#")
-                    } for f in formations[:8]]
-        except: pass
-
-    # 2. Plan B : Catalogue de secours qualitatif si l'API est inaccessible
-    return [
-        {"titre": f"Certification d'État - {sujet.upper()}", "org": "GRETA Occitanie", "loc": f"{zone_info['search_city']} (Mixte)", "fin": "100% Éligible CPF", "desc": "Diplôme reconnu par l'État pour valider vos acquis et maximiser votre employabilité sur le bassin.", "url": "https://www.moncompteformation.gouv.fr/"},
-        {"titre": "Mise à niveau & Compétences Transverses", "org": "AFPA Montpellier", "loc": "Montpellier & Distanciel", "fin": "CPF / Prise en charge Région", "desc": "Parcours intensif adapté aux besoins des recruteurs locaux. Intègre des modules de management et de RSE.", "url": "https://www.moncompteformation.gouv.fr/"},
-        {"titre": f"Validation des Acquis (VAE) - {sujet.upper()}", "org": "Région Occitanie", "loc": f"Accompagnement de proximité", "fin": "Financement Intégral", "desc": "Transformez votre expérience de terrain en un diplôme officiel sans repasser par un cycle scolaire complet.", "url": "https://www.moncompteformation.gouv.fr/"}
-    ]
+    # Étape 1 : Conversion sémantique (Mot-clé vers Codes ROME)
+    url_metiers = f"https://labonnealternance.apprentissage.beta.gouv.fr/api/v1/metiers?title={term}"
+    romes = []
+    try:
+        r_met = requests.get(url_metiers, timeout=5)
+        if r_met.status_code == 200:
+            for metier in r_met.json().get("metiers", []):
+                romes.extend(metier.get("romes", []))
+    except Exception:
+        pass
+        
+    # Sécurisation si le mot-clé est illisible ou vide
+    if not romes:
+        romes = ["M1805", "M1402", "D1401", "N1303"] # Tech, RH, Vente, Logistique
+        
+    romes_str = ",".join(list(set(romes))[:5])
+    
+    # Étape 2 : Interrogation du catalogue Carif-Oref
+    url_form = "https://labonnealternance.apprentissage.beta.gouv.fr/api/v1/formations"
+    params = {
+        "romes": romes_str,
+        "latitude": lat,
+        "longitude": lon,
+        "radius": radius,
+        "caller": "JobRadar_App"
+    }
+    
+    formations = []
+    try:
+        r_form = requests.get(url_form, params=params, timeout=10)
+        if r_form.status_code == 200:
+            for f in r_form.json().get("results", [])[:10]: # Affichage des 10 premiers résultats
+                org_name = f.get("company", {}).get("name", "Centre de formation certifié")
+                lien_pre_rempli = f"https://labonnealternance.apprentissage.beta.gouv.fr/recherche-apprentissage?&romes={romes_str}&radius={radius}&lat={lat}&lon={lon}"
+                
+                formations.append({
+                    "titre": str(f.get("title", "Titre Professionnel")).capitalize(),
+                    "org": org_name,
+                    "loc": f.get("place", {}).get("city", "Localité non précisée"),
+                    "fin": "Alternance / CPF",
+                    "desc": f"Formation référencée dispensée par {org_name}. Idéal pour obtenir une certification reconnue par l'État et accélérer votre transition professionnelle.",
+                    "url": lien_pre_rempli
+                })
+    except Exception:
+        pass
+        
+    return formations
 
 # -------------------------------------------------------------
-# 5. INTERFACE UTILISATEUR & GRID DESKTOP
+# 6. INTERFACE UTILISATEUR & GRID DESKTOP
 # -------------------------------------------------------------
 st.title("🎯 JobRadar Montpellier & Cournonsec")
 st.caption("Agrégateur d'opportunités en direct optimisé pour ordinateur")
@@ -324,11 +338,11 @@ contrats_choisis = st.multiselect("📄 Filtre contrats :", ["CDI", "CDD", "Int�
 
 col_btn, col_opts = st.columns([1, 3])
 with col_btn:
-    st.write("") # Spacer vertical
+    st.write("") 
     btn_chercher = st.button("🚀 Rechercher", type="primary", use_container_width=True)
 with col_opts:
     with st.expander("⚙️ Sources de données actives"):
-        sources_actives = st.multiselect("Sources :", ["France Travail", "Adzuna", "Jooble", "Indeed & LinkedIn (JSearch)"], default=["France Travail", "Adzuna", "Jooble"])
+        sources_actives = st.multiselect("Sources :", ["France Travail", "Adzuna", "Jooble", "Indeed & LinkedIn (JSearch)"], default=["France Travail", "Adzuna", "Jooble", "Indeed & LinkedIn (JSearch)"])
 
 if btn_chercher or "resultats" not in st.session_state:
     requetes_calculees = preparer_requetes(mot_cle)
@@ -351,7 +365,7 @@ if btn_chercher or "resultats" not in st.session_state:
         uniques = {f"{o['titre']}_{o['entreprise']}": o for o in toutes_offres}.values()
         st.session_state["resultats"] = list(uniques)
         st.session_state["stats"] = stats
-        st.session_state["formations"] = fetch_formations_reelles(mot_cle, zone_info)
+        st.session_state["formations"] = fetch_lba_formations(mot_cle, zone_info["lat"], zone_info["lon"], rayon)
 
 offres = [job for job in st.session_state.get("resultats", []) if not contrats_choisis or any(c.lower() in str(job).lower() for c in contrats_choisis)]
 
@@ -360,15 +374,14 @@ if st.session_state.get("stats"):
     st.caption("📊 " + " | ".join([f"**{k}**: {v}" for k, v in st.session_state["stats"].items()]))
 
 # -------------------------------------------------------------
-# 6. ONGLETS ET AFFICHAGE EN GRILLES (COLONNES)
+# 7. ONGLETS ET AFFICHAGE EN GRILLES (COLONNES)
 # -------------------------------------------------------------
-tab_liste, tab_map, tab_cpf = st.tabs(["📋 Liste des offres (Grille)", "🗺️ Carte interactive", "🎓 Formations CPF"])
+tab_liste, tab_map, tab_cpf = st.tabs(["📋 Liste des offres (Grille)", "🗺️ Carte interactive", "🎓 Formations"])
 
 with tab_liste:
     if not offres:
         st.warning("Aucune offre pour ces critères. Élargissez le périmètre.")
     else:
-        # Affichage optimisé Desktop : 2 colonnes par ligne
         cols = st.columns(2)
         for index, job in enumerate(offres):
             col = cols[index % 2]
@@ -405,25 +418,26 @@ with tab_map:
     st_folium(m, width="100%", height=600)
 
 with tab_cpf:
-    st.subheader("🎓 Formations & Financements CPF Réels")
-    st.write("Résultats issus des bases de données officielles (France Travail / MCF) pour votre bassin :")
+    st.subheader("🎓 Formations & Titres Professionnels (La Bonne Alternance)")
+    st.write("Résultats exclusifs issus du référentiel national des certifications de l'État :")
     
     formations = st.session_state.get("formations", [])
-    cols_form = st.columns(2)
-    
-    for index, f in enumerate(formations):
-        with cols_form[index % 2]:
-            st.markdown(f"""
-            <div class="job-card" style="border-left: 4px solid #10b981;">
-                <div class="job-title">{f['titre']}</div>
-                <div class="job-company">🎓 {f['org']}</div>
-                <div class="job-badges">
-                    <span class="badge badge-loc">📍 {f['loc']}</span>
-                    <span class="badge badge-salary">💰 {f['fin']}</span>
+    if not formations:
+        st.info("Aucun centre de formation géolocalisé pour ce métier précis dans ce rayon.")
+    else:
+        cols_form = st.columns(2)
+        for index, f in enumerate(formations):
+            with cols_form[index % 2]:
+                st.markdown(f"""
+                <div class="job-card" style="border-left: 4px solid #10b981;">
+                    <div class="job-title">{f['titre']}</div>
+                    <div class="job-company">🎓 {f['org']}</div>
+                    <div class="job-badges">
+                        <span class="badge badge-loc">📍 {f['loc']}</span>
+                        <span class="badge badge-salary">💰 {f['fin']}</span>
+                    </div>
+                    <div class="job-desc">{f['desc']}</div>
                 </div>
-                <div class="job-desc">{f['desc']}</div>
-            </div>
-            """, unsafe_allow_html=True)
-            url_link = f.get('url', 'https://www.moncompteformation.gouv.fr/')
-            st.link_button("👉 Consulter la formation", url_link, use_container_width=True)
-            st.markdown("<br>", unsafe_allow_html=True)
+                """, unsafe_allow_html=True)
+                st.link_button("👉 Découvrir le programme", f['url'], use_container_width=True)
+                st.markdown("<br>", unsafe_allow_html=True)
